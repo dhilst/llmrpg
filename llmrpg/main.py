@@ -8,13 +8,20 @@ def parse_args():
     parser.add_argument('--load-map', required=True, help='Path to the .tmx Tiled map file')
     return parser.parse_args()
 
-def draw_map(screen, tmx_data):
-    for layer in tmx_data.visible_layers:
-        if isinstance(layer, pytmx.TiledTileLayer):
-            for x, y, gid in layer:
-                tile = tmx_data.get_tile_image_by_gid(gid)
-                if tile:
-                    screen.blit(tile, (x * tmx_data.tilewidth, y * tmx_data.tileheight))
+                                                                                            
+def draw_map(screen, tmx_data):                                                             
+    # Draw all visible layers in proper order                                               
+    for layer in tmx_data.visible_layers:                                                   
+        if isinstance(layer, pytmx.TiledTileLayer):                                         
+            for x, y, gid in layer:                                                         
+                tile = tmx_data.get_tile_image_by_gid(gid)                                  
+                if tile:                                                                    
+                    # Convert tile to use alpha transparency                                
+                    tile = tile.convert_alpha()                                             
+                    screen.blit(tile,                                                       
+                        (x * tmx_data.tilewidth + layer.offsetx,                            
+                         y * tmx_data.tileheight + layer.offsety))                          
+                                                                    
 
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y, tmx_data):
