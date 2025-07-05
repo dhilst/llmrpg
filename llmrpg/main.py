@@ -30,7 +30,6 @@ def draw_map(screen, tmx_data):
 
 
 
-
 class Tileset:
     def __init__(self, filpath: str):
         """Load and parse a Tiled tileset XML file"""
@@ -137,15 +136,18 @@ class Tileset:
 
 
 class GameData:
-    def __init__(self):
+    def __init__(self, tmx_data):
         self.characters = Tileset("sprites/characters.tsx")
+        self.tmx_data = tmx_data
 
 
 class Player(pygame.sprite.Sprite):
-    def __init__(self, x, y, tmx_data, gamedata: GameData):
+    def __init__(self, x, y, imageset: str, gamedata: GameData):
         super().__init__()
-        self.tile_width = tmx_data.tilewidth
-        self.tile_height = tmx_data.tileheight
+        self.gamedata = gamedata
+        self.imageset = imageset
+        self.tile_width = gamedata.tmx_data.tilewidth
+        self.tile_height = gamedata.tmx_data.tileheight
 
         # Store initial tile position
         self.tile_x = x
@@ -158,10 +160,9 @@ class Player(pygame.sprite.Sprite):
         # Load character spritesheet and setup animation
         logging.debug(f"Loading spritesheet from: sprites/characters.png")
         self.spritesheet = pygame.image.load("sprites/characters.png").convert_alpha()
-        self.gamedata = gamedata
         logging.debug(f"Spritesheet loaded, size: {self.spritesheet.get_size()}")
         
-        self.frames = self.gamedata.characters.frames("boy")  # dict: direction -> frames list
+        self.frames = self.gamedata.characters.frames(self.imageset)  # dict: direction -> frames list
         self.direction = "down"  # default direction
 
         # fallback in case no animation frames for direction
@@ -181,8 +182,7 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
 
         # Store the map data
-        self.tmx_data = tmx_data
-        self.tile_layers = [layer for layer in tmx_data.visible_layers
+        self.tile_layers = [layer for layer in gamedata.tmx_data.visible_layers
                            if isinstance(layer, pytmx.TiledTileLayer)]
 
         # Track movement
@@ -190,7 +190,7 @@ class Player(pygame.sprite.Sprite):
         self.speed = 5  # pixels per frame
 
         self.collision_objects = []
-        for obj in tmx_data.get_layer_by_name("Objects"):
+        for obj in gamedata.tmx_data.get_layer_by_name("Objects"):
             if obj.type == "wall":
                 # Create a rect for the collision object
                 rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
@@ -235,8 +235,8 @@ class Player(pygame.sprite.Sprite):
         )
 
         # Check map boundaries
-        if (new_x < 0 or new_x >= self.tmx_data.width or
-            new_y < 0 or new_y >= self.tmx_data.height):
+        if (new_x < 0 or new_x >= self.gamedata.tmx_data.width or
+            new_y < 0 or new_y >= self.gamedata.tmx_data.height):
             return True
 
         # Check object collisions
@@ -284,68 +284,110 @@ class Player(pygame.sprite.Sprite):
             self.moving = False
 
 
+class Game:
+    def __init__(self, map_path: str):
+        logging.debug("Initializing pygame...")
+        pygame.init()
+
+        # Set a minimal display mode before loading the map so convert() calls work
+        pygame.display.set_mode((1, 1))
+
+        logging.debug(f"Loading TMX map: {map_path}")
+        self.tmx_data = load_pygame(map_path)
+
+        self.width = self.tmx_data.width * self.tmx_data.tilewidth
+        self.height = self.tmx_data.height * self.tmx_data.tileheight
+
+        logging.debug(f"Setting up display: {self.width}x{self.height}")
+        self.screen = pygame.display.set_mode((self.width, self.height))
+        pygame.display.set_caption(f"Rendering {map_path}")
+
+        self.clock = pygame.time.Clock()
+        self.running = True
+
+        self.gamedata = GameData(self.tmx_data)
+
+        logging.debug("Creating player1 (boy) at initial position (5, 5)")
+        self.player1 = Player(5, 5, "boy", self.gamedata)
+
+        logging.debug("Creating player2 (girl) at initial position (7, 5)")
+        self.player2 = Player(7, 5, "girl", self.gamedata)
+
+        self.font = pygame.font.SysFont(None, 24)
+
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                logging.debug("Quit event detected")
+                self.running = False
+
+            if event.type == pygame.KEYDOWN:
+                # Control player1 (boy) with arrow keys only if not moving
+                if not self.player1.moving:
+                    if event.key == pygame.K_LEFT:
+                        self.player1.move_to(self.player1.tile_x - 1, self.player1.tile_y)
+                    elif event.key == pygame.K_RIGHT:
+                        self.player1.move_to(self.player1.tile_x + 1, self.player1.tile_y)
+                    elif event.key == pygame.K_UP:
+                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y - 1)
+                    elif event.key == pygame.K_DOWN:
+                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y + 1)
+                    elif event.key == pygame.K_r:  # Reset player1 position
+                        logging.debug("Resetting player1 position")
+                        self.player1 = Player(5, 5, "boy", self.gamedata)
+
+                # Control player2 (skeleton) with WASD only if not moving
+                if not self.player2.moving:
+                    if event.key == pygame.K_a:
+                        self.player2.move_to(self.player2.tile_x - 1, self.player2.tile_y)
+                    elif event.key == pygame.K_d:
+                        self.player2.move_to(self.player2.tile_x + 1, self.player2.tile_y)
+                    elif event.key == pygame.K_w:
+                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y - 1)
+                    elif event.key == pygame.K_s:
+                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y + 1)
+                    elif event.key == pygame.K_t:  # Reset player2 position (using 't' key)
+                        logging.debug("Resetting player2 position")
+                        self.player2 = Player(7, 5, "skeleton", self.gamedata)
+
+    def update(self):
+        self.player1.update()
+        self.player2.update()
+
+    def render(self):
+        self.screen.fill((0, 0, 0))
+        draw_map(self.screen, self.tmx_data)
+
+        # Draw both players
+        self.screen.blit(self.player1.image, self.player1.rect)
+        self.screen.blit(self.player2.image, self.player2.rect)
+
+        # Display positions for both players
+        text1 = self.font.render(f"Player1 (boy) Pos: {self.player1.tile_x}, {self.player1.tile_y}", True, (255, 255, 255))
+        text2 = self.font.render(f"Player2 (skeleton) Pos: {self.player2.tile_x}, {self.player2.tile_y}", True, (255, 255, 255))
+        self.screen.blit(text1, (10, 10))
+        self.screen.blit(text2, (10, 30))
+
+        pygame.display.flip()
+
+    def run(self):
+        while self.running:
+            self.handle_events()
+            self.update()
+            self.render()
+            self.clock.tick(60)
+
+        pygame.quit()
+
+
 def main():
     args = parse_args()
     logging.basicConfig(level=args.log.upper(),
-                      format='%(asctime)s - %(levelname)s - %(message)s')
-    map_path = args.load_map
+                        format='%(asctime)s - %(levelname)s - %(message)s')
 
-    pygame.init()
+    game = Game(args.load_map)
+    game.run()
 
-    # Set up temporary small display for loading
-    screen = pygame.display.set_mode((1, 1))
-
-    tmx_data = load_pygame(map_path)
-
-
-    # Resize display to map size
-    width = tmx_data.width * tmx_data.tilewidth
-    height = tmx_data.height * tmx_data.tileheight
-    screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption(f"Rendering {map_path}")
-
-    clock = pygame.time.Clock()
-    running = True
-
-    gamedata = GameData()
-
-    # Start player in a reasonable position
-    player = Player(5, 5, tmx_data, gamedata)
-
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-
-            if event.type == pygame.KEYDOWN and not player.moving:
-                if event.key == pygame.K_LEFT:
-                    player.move_to(player.tile_x - 1, player.tile_y)
-                elif event.key == pygame.K_RIGHT:
-                    player.move_to(player.tile_x + 1, player.tile_y)
-                elif event.key == pygame.K_UP:
-                    player.move_to(player.tile_x, player.tile_y - 1)
-                elif event.key == pygame.K_DOWN:
-                    player.move_to(player.tile_x, player.tile_y + 1)
-                elif event.key == pygame.K_r:  # Reset position
-                    player = Player(5, 5, tmx_data)
-
-        player.update()
-
-        screen.fill((0, 0, 0))
-        draw_map(screen, tmx_data)
-
-        # Draw player after map
-        screen.blit(player.image, player.rect)
-
-        # Draw debug info
-        font = pygame.font.SysFont(None, 24)
-        text = font.render(f"Pos: {player.tile_x}, {player.tile_y}", True, (255, 255, 255))
-        screen.blit(text, (10, 10))
-
-        pygame.display.flip()
-        clock.tick(60)
-
-    pygame.quit()
 
 if __name__ == "__main__":
     main()
