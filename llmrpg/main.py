@@ -3,7 +3,7 @@ from itertools import chain
 from pathlib import Path
 import argparse
 import logging
-from typing import Dict, Optional
+from typing import Dict, Iterable, Optional
 import pygame
 from pytmx import load_pygame
 import pytmx
@@ -233,6 +233,10 @@ class GameData:
 class Actor(pygame.sprite.Sprite):
     def __init__(self, x, y, imageset: str, gamedata: GameData):
         super().__init__()
+
+        self.last_move_time = 0  # Track when mob last moved
+        self.move_cooldown = 1000  # 3 seconds in milliseconds
+
         self.gamedata = gamedata
         self.imageset = imageset
         self.tile_width = gamedata.tmx_data.tilewidth
@@ -275,6 +279,30 @@ class Actor(pygame.sprite.Sprite):
         # Track movement
         self.moving = False
         self.speed = 5  # pixels per frame
+
+    def random_move(self, current_time):
+        """Attempt a random move if cooldown has expired"""
+        if current_time - self.last_move_time < self.move_cooldown:
+            return False
+            
+        if self.moving:
+            return False
+            
+        # Choose a random direction
+        directions = [
+            (self.tile_x - 1, self.tile_y),  # left
+            (self.tile_x + 1, self.tile_y),  # right
+            (self.tile_x, self.tile_y - 1),  # up
+            (self.tile_x, self.tile_y + 1)   # down
+        ]
+        random.shuffle(directions)
+        
+        # Try each direction until one works
+        for new_x, new_y in directions:
+            if self.move_to(new_x, new_y):
+                self.last_move_time = current_time
+                return True
+        return False
 
     def move_to(self, new_x, new_y):
         """Attempt to move to new tile position and update direction"""
@@ -427,7 +455,7 @@ class Game:
 
 
     def spawn_mob_by_name(self, imageset: str, 
-                          /,
+                          *,
                           spawn_area: str | None = None, 
                           min_x: int = 0, max_x: int | None = None,
                           min_y: int = 0, max_y: int | None = None,
@@ -583,11 +611,15 @@ class Game:
                         logging.debug("Resetting player2 position")
                         self.player2 = Actor(7, 5, "skeleton", self.gamedata)
 
-    def actors(self):
+    def actors(self) -> Iterable[Actor]:
         return chain(self.players, self.mobs)
 
     def update(self):
+        current_time = pygame.time.get_ticks()
         for actor in self.actors():
+            # Only mobs (not players) get random movement
+            if actor in self.mobs:
+                actor.random_move(current_time)
             actor.update()
 
     def draw_actors(self):
