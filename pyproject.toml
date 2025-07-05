@@ -8,8 +8,9 @@ readme = "README.md"
 license = { file = "LICENSE" }
 
 dependencies = [
+    "lxml>=6.0.0",
     "pygame >=2.1.2",
-    "pytmx >=1.4.0"
+    "pytmx >=1.4.0",
 ]
 
 [project.scripts]

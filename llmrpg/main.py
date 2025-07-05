@@ -1,8 +1,11 @@
+from pathlib import Path
 import argparse
 import logging
+from typing import Any
 import pygame
 from pytmx import load_pygame
 import pytmx
+from lxml import etree
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Pygame Tiled Map Renderer")
@@ -26,8 +29,97 @@ def draw_map(screen, tmx_data):
                          y * tmx_data.tileheight + layer.offsety))
 
 
+
+
+class Tileset:
+    def __init__(self, path: str):
+        """Load and parse a Tiled tileset XML file"""
+        # Parse XML with lxml
+        tree = etree.parse(path)
+        root = tree.getroot()
+        
+        # Extract basic tileset properties
+        self.name = root.get("name", "untitled")
+        self.tile_width = int(root.get("tilewidth", 16))
+        self.tile_height = int(root.get("tileheight", 16))
+        self.tile_count = int(root.get("tilecount", 0))
+        self.columns = int(root.get("columns", 0))
+        
+        # Get the image source path
+        image_node = root.find("image")
+        if image_node is not None:
+            self.image_source = image_node.get("source")
+            self.image_width = int(image_node.get("width", 0))
+            self.image_height = int(image_node.get("height", 0))
+        else:
+            self.image_source = None
+            self.image_width = 0
+            self.image_height = 0
+
+        # Parse individual tile properties and animations
+        self.tiles = {}
+        for tile_node in root.findall("tile"):
+            tile_id = int(tile_node.get("id"))
+            tile_type = tile_node.get("type", "")
+            
+            # Parse properties
+            props = {}
+            properties_node = tile_node.find("properties")
+            if properties_node is not None:
+                for prop_node in properties_node.findall("property"):
+                    props[prop_node.get("name")] = prop_node.get("value")
+            
+            # Parse animations
+            animation = []
+            anim_node = tile_node.find("animation")
+            if anim_node is not None:
+                for frame_node in anim_node.findall("frame"):
+                    animation.append({
+                        "tileid": int(frame_node.get("tileid")),
+                        "duration": int(frame_node.get("duration"))
+                    })
+            
+            self.tiles[tile_id] = {
+                "type": tile_type,
+                "properties": props,
+                "animation": animation
+            }
+
+        # Group animations by imageset and direction
+        self.animations = {}
+        for tile in self.tiles.values():
+            if tile["animation"]:
+                imageset = tile["properties"].get("imageset", "unknown")
+                direction = tile["properties"].get("direction", "unknown")
+                
+                if imageset not in self.animations:
+                    self.animations[imageset] = {}
+                if direction not in self.animations[imageset]:
+                    self.animations[imageset][direction] = {}
+                
+                self.animations[imageset][direction].update(**{
+                    "frames": tile["animation"],
+                    "type": tile["type"],
+                    "properties": tile["properties"]
+                })
+
+    def __repr__(self):
+        """Return a string representation of the tileset"""
+        return (
+            f"<Tileset {self.name} ({self.tile_width}x{self.tile_height}) "
+            f"tiles={self.tile_count} cols={self.columns} "
+            f"image='{self.image_source}' "
+            f"tiles_with_props={len([t for t in self.tiles.values() if t['properties']])}>"
+        )
+
+
+class GameData:
+    def __init__(self):
+        self.characters = Tileset("sprites/characters.tsx")
+
+
 class Player(pygame.sprite.Sprite):
-    def __init__(self, x, y, tmx_data):
+    def __init__(self, x, y, tmx_data, gamedata: GameData):
         super().__init__()
         self.tile_width = tmx_data.tilewidth
         self.tile_height = tmx_data.tileheight
@@ -43,6 +135,7 @@ class Player(pygame.sprite.Sprite):
         # Load character spritesheet and setup animation
         logging.debug(f"Loading spritesheet from: sprites/characters.png")
         self.spritesheet = pygame.image.load("sprites/characters.png").convert_alpha()
+        self.gamedata = gamedata
         logging.debug(f"Spritesheet loaded, size: {self.spritesheet.get_size()}")
         
         self.frames = [
@@ -50,6 +143,7 @@ class Player(pygame.sprite.Sprite):
             self.spritesheet.subsurface(pygame.Rect(16, 0, 16, 16)),
             self.spritesheet.subsurface(pygame.Rect(32, 0, 16, 16))
         ]
+        # self.frames = self.gamedata.characters.animations["boy"]["down"]
         logging.debug(f"Loaded {len(self.frames)} animation frames")
         for i, frame in enumerate(self.frames):
             logging.debug(f"Frame {i} size: {frame.get_size()}")
@@ -159,6 +253,8 @@ def main():
 
     tmx_data = load_pygame(map_path)
 
+    characters = Tileset("sprites/characters.tsx")
+
     # Resize display to map size
     width = tmx_data.width * tmx_data.tilewidth
     height = tmx_data.height * tmx_data.tileheight
@@ -168,8 +264,10 @@ def main():
     clock = pygame.time.Clock()
     running = True
 
+    gamedata = GameData()
+
     # Start player in a reasonable position
-    player = Player(5, 5, tmx_data)
+    player = Player(5, 5, tmx_data, gamedata)
 
     while running:
         for event in pygame.event.get():
