@@ -23,4 +23,6 @@ build-backend = "setuptools.build_meta"
 packages = ["llmrpg", "sprites"]  # Explicitly list packages                                
 
 [dependency-groups]
-dev = []
+dev = [
+    "ipdb>=0.13.13",
+]
