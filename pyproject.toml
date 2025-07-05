@@ -18,3 +18,6 @@ map_renderer = "map_renderer:main"
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]                                                                           
+packages = ["llmrpg", "sprites"]  # Explicitly list packages                                

@@ -72,11 +72,11 @@
 105,97,105,107,105,105,107,107,97,114,106,98,114,106,113,113,115,106,106,115,114,115,113,99,113,98,115,113,113,97,99,113,64,64,64,64,99,114,114,97,113,114,99,107,97,97,114,97,106,98,97,106,98,114,115,97,114,97,97,114
 </data>
  </layer>
- <objectgroup id="8" name="Objects" visible="0">
+ <objectgroup id="8" name="Objects">
   <object id="5" name="montains" type="wall" x="513.333" y="478">
    <polygon points="0,0 -1.33333,-110 30,-109.333 30,-64 46.6667,-63.3333 46,-33.3333 64,-32 62.6667,0"/>
   </object>
-  <object id="6" name="trees" type="walll" x="352.364" y="128.364">
+  <object id="6" name="trees" type="wall" x="352.364" y="128.364">
    <polygon points="0,0 15.8182,-0.181818 15.2727,48 31.6364,48 31.5114,271.386 15.3864,272.011 14.5114,287.511 -0.738636,287.761 -0.238636,190.386 -14.6136,191.136 -16.3636,112.136 0.261364,111.511"/>
   </object>
   <object id="7" name="trees" type="wall" x="273" y="145" width="15" height="16"/>
@@ -86,49 +86,49 @@
   <object id="14" name="well" type="wall" x="528.333" y="191.5" width="19.3333" height="18"/>
   <object id="16" name="well" type="wall" x="414.667" y="288.5" width="19.3333" height="18"/>
   <object id="18" name="well" type="wall" x="14" y="289.167" width="19.3333" height="18"/>
-  <object id="19" name="trees" type="wall" x="238.833" y="224.833" width="15" height="16"/>
-  <object id="20" name="well" type="wall" x="154.667" y="382.5" width="19.3333" height="18"/>
+  <object id="19" name="trees" type="wall" x="242.833" y="224.833" width="11" height="13"/>
+  <object id="20" name="well" type="wall" x="161.94" y="385.773" width="11.6969" height="11.0909"/>
   <object id="23" name="chest" type="wall" x="415.667" y="240.833" width="16" height="13.3333"/>
   <object id="25" name="chest" type="wall" x="223" y="80.1667" width="16" height="13.3333"/>
   <object id="26" name="chest" type="wall" x="545" y="94.8333" width="16" height="13.3333"/>
   <object id="27" name="chest" type="wall" x="701.667" y="368.833" width="16" height="13.3333"/>
-  <object id="28" name="chest" type="wall" x="159" y="336.167" width="16" height="13.3333"/>
-  <object id="29" name="sign" type="sign" x="624.333" y="159.5" width="14" height="15.3333">
+  <object id="28" name="chest" type="wall" x="161.364" y="338.167" width="12.5455" height="11.5151"/>
+  <object id="29" name="sign" type="wall" x="624.333" y="159.5" width="14" height="15.3333">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="36" name="sign" type="sign" x="432" y="47.8334" width="14" height="15.3333">
+  <object id="36" name="sign" type="wall" x="432" y="47.8334" width="14" height="15.3333">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="37" name="sign" type="sign" x="80.6667" y="48.5" width="14" height="15.3333">
+  <object id="37" name="sign" type="wall" x="84" y="52.8333" width="7.33333" height="8.3333">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="38" name="sign" type="sign" x="670" y="49.1667" width="14" height="15.3333">
+  <object id="38" name="sign" type="wall" x="670" y="49.1667" width="14" height="15.3333">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="39" name="sign" type="sign" x="110" y="225.833" width="14" height="15.3333">
+  <object id="39" name="sign" type="wall" x="115.333" y="229.166" width="9" height="8.66663">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="40" name="sign" type="sign" x="271.333" y="355.833" width="14" height="15.3333">
+  <object id="40" name="sign" type="sign" x="275.151" y="355.288" width="9.27273" height="8.78785">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="41" name="sign" type="sign" x="352.667" y="417.833" width="14" height="15.3333">
+  <object id="41" name="sign" type="sign" x="354.849" y="418.378" width="10.7273" height="12.0606">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="42" name="sign" type="sign" x="622.667" y="288.5" width="14" height="15.3333">
+  <object id="42" name="sign" type="wall" x="622.667" y="288.5" width="14" height="15.3333">
    <properties>
     <property name="message" value=""/>
    </properties>
@@ -136,12 +136,12 @@
   <object id="43" type="wall" x="0.333333" y="207.5" width="14.6667" height="16"/>
   <object id="46" name="finish" type="wall" x="-1" y="206.833" width="14.6667" height="16.6667"/>
   <object id="49" name="castle" type="wall" x="0.333333" y="448.167" width="16.6667" height="15.3333"/>
-  <object id="54" name="sign" type="sign" x="270.667" y="49.1667" width="14" height="15.3333">
+  <object id="54" name="sign" type="wall" x="274.667" y="51.1667" width="10.6667" height="10.3333">
    <properties>
     <property name="message" value=""/>
    </properties>
   </object>
-  <object id="55" name="sign" type="sign" x="848" y="51.1667" width="14" height="15.3333">
+  <object id="55" name="sign" type="wall" x="848" y="51.1667" width="14" height="15.3333">
    <properties>
     <property name="message" value=""/>
    </properties>
@@ -155,7 +155,7 @@
   <object id="67" name="danger" type="danger" x="839.667" y="2.16667">
    <polygon points="0,0 118,184 119.333,-4.66667"/>
   </object>
-  <object id="68" name="sign" type="sign" x="878" y="289.833" width="14" height="15.3333">
+  <object id="68" name="sign" type="wall" x="878" y="289.833" width="14" height="15.3333">
    <properties>
     <property name="message" value=""/>
    </properties>

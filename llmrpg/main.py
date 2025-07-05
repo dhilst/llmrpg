@@ -8,20 +8,20 @@ def parse_args():
     parser.add_argument('--load-map', required=True, help='Path to the .tmx Tiled map file')
     return parser.parse_args()
 
-                                                                                            
-def draw_map(screen, tmx_data):                                                             
-    # Draw all visible layers in proper order                                               
-    for layer in tmx_data.visible_layers:                                                   
-        if isinstance(layer, pytmx.TiledTileLayer):                                         
-            for x, y, gid in layer:                                                         
-                tile = tmx_data.get_tile_image_by_gid(gid)                                  
-                if tile:                                                                    
-                    # Convert tile to use alpha transparency                                
-                    tile = tile.convert_alpha()                                             
-                    screen.blit(tile,                                                       
-                        (x * tmx_data.tilewidth + layer.offsetx,                            
-                         y * tmx_data.tileheight + layer.offsety))                          
-                                                                    
+
+def draw_map(screen, tmx_data):
+    # Draw all visible layers in proper order
+    for layer in tmx_data.visible_layers:
+        if isinstance(layer, pytmx.TiledTileLayer):
+            for x, y, gid in layer:
+                tile = tmx_data.get_tile_image_by_gid(gid)
+                if tile:
+                    # Convert tile to use alpha transparency
+                    tile = tile.convert_alpha()
+                    screen.blit(tile,
+                        (x * tmx_data.tilewidth + layer.offsetx,
+                         y * tmx_data.tileheight + layer.offsety))
+
 
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y, tmx_data):
@@ -51,10 +51,17 @@ class Player(pygame.sprite.Sprite):
         self.moving = False
         self.speed = 5  # pixels per frame
 
+        self.collision_objects = []
+        for obj in tmx_data.get_layer_by_name("Objects"):
+            if obj.type == "wall":
+                # Create a rect for the collision object
+                rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
+                self.collision_objects.append(rect)
+
     def move_to(self, new_x, new_y):
         """Attempt to move to new tile position"""
-        # if self._check_collision(new_x, new_y):
-        #     return False  # Collision occurred
+        if self._check_collision(new_x, new_y):
+            return False  # Collision occurred
 
         self.moving = True
         self.target_x = new_x * self.tile_width
@@ -63,19 +70,26 @@ class Player(pygame.sprite.Sprite):
         self.target_tile_y = new_y
         return True
 
-    def _check_collision(self, x, y):
-        """Check if target position is collidable"""
-        # Check boundaries first
-        if (x < 0 or x >= self.tmx_data.width or
-            y < 0 or y >= self.tmx_data.height):
+    def _check_collision(self, new_x, new_y):
+        """Check collisions with both tiles and objects"""
+        # Convert tile coordinates to pixel coordinates
+        target_rect = pygame.Rect(
+            new_x * self.tile_width,
+            new_y * self.tile_height,
+            self.tile_width,
+            self.tile_height
+        )
+
+        # Check map boundaries
+        if (new_x < 0 or new_x >= self.tmx_data.width or
+            new_y < 0 or new_y >= self.tmx_data.height):
             return True
 
-        # Check each visible tile layer for collisions
-        for layer in self.tile_layers:
-            # Get the GID of the target tile
-            for lx, ly, gid in layer:
-                if lx == x and ly == y and gid != 0:
-                    return True
+        # Check object collisions
+        for obj_rect in self.collision_objects:
+            if target_rect.colliderect(obj_rect):
+                return True
+
         return False
 
     def update(self):
