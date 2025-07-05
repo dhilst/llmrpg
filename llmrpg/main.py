@@ -1,7 +1,7 @@
 from pathlib import Path
 import argparse
 import logging
-from typing import Any
+from typing import Dict, Optional
 import pygame
 from pytmx import load_pygame
 import pytmx
@@ -19,7 +19,7 @@ def draw_map(screen, tmx_data):
     # Draw all visible layers in proper order
     for layer in tmx_data.visible_layers:
         if isinstance(layer, pytmx.TiledTileLayer):
-            for x, y, gid in layer:
+            for x, y, gid in layer: # type: ignore
                 tile = tmx_data.get_tile_image_by_gid(gid)
                 if tile:
                     # Convert tile to use alpha transparency
@@ -135,11 +135,95 @@ class Tileset:
         )
 
 
-class GameData:
-    def __init__(self, tmx_data):
-        self.characters = Tileset("sprites/characters.tsx")
-        self.tmx_data = tmx_data
 
+class GameData:
+    def __init__(self, tmx_data: pytmx.TiledMap):
+        self.tmx_data = tmx_data
+        self.objectlayer = self._get_object_layer()
+        self.spawn_areas = self._load_spawn_areas()  # Dictionary of spawn areas
+        self.characters = Tileset("sprites/characters.tsx")
+        self.collision_objects = []
+        # get_layer_by_name returns an  TiledObjectGroup, not int, which is interable
+        # the typehint says it returns int for some reason, so I'm skipping typechecking here
+        for obj in tmx_data.get_layer_by_name("Objects"): # type: ignore
+            if obj.type == "wall":
+                # Create a rect for the collision object
+                rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
+                self.collision_objects.append(rect)
+        
+    def _get_object_layer(self) -> Optional[pytmx.TiledObjectGroup]:
+        """Find and return the object layer from the TMX data."""
+        for layer in self.tmx_data.layers:
+            if isinstance(layer, pytmx.TiledObjectGroup):
+                return layer
+        return None
+    
+    def _load_spawn_areas(self) -> Dict[str, pygame.Rect]:
+        """
+        Load all spawn areas from the object layer.
+        Returns dictionary with {spawn_name: pygame.Rect}
+        """
+        spawns = {}
+        
+        if not self.objectlayer:
+            return spawns
+            
+        for obj in self.objectlayer:
+            if obj.type == "spawn":
+                spawns[obj.name] = pygame.Rect(
+                    obj.x, 
+                    obj.y, 
+                    obj.width, 
+                    obj.height
+                )
+        
+        return spawns
+    
+    def get_spawn_area(self, name: str) -> Optional[pygame.Rect]:
+        """Get a specific spawn area by name"""
+        return self.spawn_areas.get(name)
+    
+    def get_player_spawn(self) -> Optional[pygame.Rect]:
+        """Convenience method to get player spawn"""
+        return self.get_spawn_area("player")
+    
+    def get_enemy_spawns(self) -> Dict[str, pygame.Rect]:
+        """Get all non-player spawn areas"""
+        return {
+            name: rect 
+            for name, rect in self.spawn_areas.items() 
+            if name != "player"
+        }
+
+    def draw_object_layer_borders(self, surface: pygame.Surface, color=(0, 0, 0), font_size=14):
+        """Draw borders and names of all objects in the object layer"""
+        if not self.objectlayer:
+            return
+        
+        # Load a font for the text rendering
+        font = pygame.font.Font(None, font_size)  # None uses default font, 24 is size
+        
+        center_x = None
+        center_y = None
+        for obj in self.objectlayer:
+            if hasattr(obj, 'points'):  # Polygonal objects
+                points = [(p[0], p[1]) for p in obj.points]
+                if len(points) > 1:
+                    pygame.draw.polygon(surface, color, points, 1)
+                    # Calculate center for polygon
+                    center_x = sum(p[0] for p in points) / len(points)
+                    center_y = sum(p[1] for p in points) / len(points)
+            else:  # Rectangular objects
+                rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
+                pygame.draw.rect(surface, color, rect, 1)
+                center_x = obj.x + obj.width / 2
+                center_y = obj.y + obj.height / 2
+            
+            # Render object name if it exists
+            if obj.name and center_x is not None and center_y is not None:
+                text = font.render(obj.name, True, color)
+                text_rect = text.get_rect(center=(center_x, center_y))
+                surface.blit(text, text_rect)
 
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y, imageset: str, gamedata: GameData):
@@ -189,13 +273,6 @@ class Player(pygame.sprite.Sprite):
         self.moving = False
         self.speed = 5  # pixels per frame
 
-        self.collision_objects = []
-        for obj in gamedata.tmx_data.get_layer_by_name("Objects"):
-            if obj.type == "wall":
-                # Create a rect for the collision object
-                rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
-                self.collision_objects.append(rect)
-
     def move_to(self, new_x, new_y):
         """Attempt to move to new tile position and update direction"""
         # Determine direction based on new vs current position
@@ -240,7 +317,7 @@ class Player(pygame.sprite.Sprite):
             return True
 
         # Check object collisions
-        for obj_rect in self.collision_objects:
+        for obj_rect in self.gamedata.collision_objects:
             if target_rect.colliderect(obj_rect):
                 return True
 
@@ -285,7 +362,9 @@ class Player(pygame.sprite.Sprite):
 
 
 class Game:
-    def __init__(self, map_path: str):
+    def __init__(self, map_path: str, debug: bool = False):
+        self.debug = debug
+
         logging.debug("Initializing pygame...")
         pygame.init()
 
@@ -315,6 +394,38 @@ class Game:
 
         self.font = pygame.font.SysFont(None, 24)
 
+    def draw_debug_info(self):
+        """Draw all debug information including mouse position"""
+        screen = self.screen
+        if not self.debug:
+            return
+            
+        # Draw mouse position
+        self._draw_mouse_position(screen)
+        
+        # Draw other debug info (object borders, etc.)
+        self.gamedata.draw_object_layer_borders(screen)
+
+    def _draw_mouse_position(self, surface):
+        """Draw current mouse position and coordinates"""
+        mouse_pos = pygame.mouse.get_pos()
+        font = pygame.font.Font(None, 14)
+        
+        # Create text
+        text = font.render(f"{mouse_pos}", True, (255, 255, 255))
+        
+        
+        # Draw to screen
+        surface.blit(text, (20, 150))
+        
+        # Draw crosshair at mouse position
+        pygame.draw.line(surface, (255, 0, 0), 
+                        (mouse_pos[0] - 10, mouse_pos[1]), 
+                        (mouse_pos[0] + 10, mouse_pos[1]), 1)
+        pygame.draw.line(surface, (255, 0, 0), 
+                        (mouse_pos[0], mouse_pos[1] - 10), 
+                        (mouse_pos[0], mouse_pos[1] + 10), 1)
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -332,6 +443,8 @@ class Game:
                         self.player1.move_to(self.player1.tile_x, self.player1.tile_y - 1)
                     elif event.key == pygame.K_DOWN:
                         self.player1.move_to(self.player1.tile_x, self.player1.tile_y + 1)
+                    elif event.key == pygame.K_h:
+                        self.debug = not self.debug
                     elif event.key == pygame.K_r:  # Reset player1 position
                         logging.debug("Resetting player1 position")
                         self.player1 = Player(5, 5, "boy", self.gamedata)
@@ -363,10 +476,13 @@ class Game:
         self.screen.blit(self.player2.image, self.player2.rect)
 
         # Display positions for both players
-        text1 = self.font.render(f"Player1 (boy) Pos: {self.player1.tile_x}, {self.player1.tile_y}", True, (255, 255, 255))
-        text2 = self.font.render(f"Player2 (skeleton) Pos: {self.player2.tile_x}, {self.player2.tile_y}", True, (255, 255, 255))
-        self.screen.blit(text1, (10, 10))
-        self.screen.blit(text2, (10, 30))
+        if self.debug:
+            text1 = self.font.render(f"Player1 Pos: {self.player1.tile_x}, {self.player1.tile_y}", True, (255, 255, 255))
+            text2 = self.font.render(f"Player2 Pos: {self.player2.tile_x}, {self.player2.tile_y}", True, (255, 255, 255))
+            self.screen.blit(text1, (10, 10))
+            self.screen.blit(text2, (10, 30))
+            self.gamedata.draw_object_layer_borders(self.screen)
+            self.draw_debug_info()
 
         pygame.display.flip()
 
