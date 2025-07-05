@@ -1,4 +1,5 @@
 import argparse
+import logging
 import pygame
 from pytmx import load_pygame
 import pytmx
@@ -6,6 +7,8 @@ import pytmx
 def parse_args():
     parser = argparse.ArgumentParser(description="Pygame Tiled Map Renderer")
     parser.add_argument('--load-map', required=True, help='Path to the .tmx Tiled map file')
+    parser.add_argument('--log', choices=['debug', 'info', 'warning', 'error'], 
+                      default='info', help='Set logging level (default: info)')
     return parser.parse_args()
 
 
@@ -37,9 +40,23 @@ class Player(pygame.sprite.Sprite):
         self.x = x * self.tile_width
         self.y = y * self.tile_height
 
-        # Create a simple rectangle player (replace with your own image)
-        self.image = pygame.Surface((self.tile_width, self.tile_height))
-        self.image.fill((255, 0, 0))  # Red rectangle
+        # Load character spritesheet and setup animation
+        logging.debug(f"Loading spritesheet from: sprites/characters.png")
+        self.spritesheet = pygame.image.load("sprites/characters.png").convert_alpha()
+        logging.debug(f"Spritesheet loaded, size: {self.spritesheet.get_size()}")
+        
+        self.frames = [
+            self.spritesheet.subsurface(pygame.Rect(0, 0, 16, 16)),
+            self.spritesheet.subsurface(pygame.Rect(16, 0, 16, 16)),
+            self.spritesheet.subsurface(pygame.Rect(32, 0, 16, 16))
+        ]
+        logging.debug(f"Loaded {len(self.frames)} animation frames")
+        for i, frame in enumerate(self.frames):
+            logging.debug(f"Frame {i} size: {frame.get_size()}")
+        self.current_frame = 0
+        self.animation_time = 0
+        self.animation_speed = 160  # ms per frame
+        self.image = self.frames[self.current_frame]
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
 
         # Store the map data
@@ -72,6 +89,7 @@ class Player(pygame.sprite.Sprite):
 
     def _check_collision(self, new_x, new_y):
         """Check collisions with both tiles and objects"""
+        print(f"Checking collision at ({new_x}, {new_y})")
         # Convert tile coordinates to pixel coordinates
         target_rect = pygame.Rect(
             new_x * self.tile_width,
@@ -94,8 +112,18 @@ class Player(pygame.sprite.Sprite):
 
     def update(self):
         """Update player position animation"""
+        # Update animation
+        self.animation_time += 1000/60  # Assuming 60 FPS
+        if self.animation_time >= self.animation_speed:
+            self.current_frame = (self.current_frame + 1) % len(self.frames)
+            self.image = self.frames[self.current_frame]
+            self.animation_time = 0
+            logging.debug(f"Switched to frame {self.current_frame}")
+
         if not self.moving:
             return
+        
+        logging.debug(f"Moving from ({self.tile_x},{self.tile_y}) to ({self.target_tile_x},{self.target_tile_y})")
 
         # Calculate direction and step
         dx = self.target_x - self.x
@@ -117,11 +145,11 @@ class Player(pygame.sprite.Sprite):
             self.tile_y = self.target_tile_y
             self.moving = False
 
-    def draw(self, screen):
-        screen.blit(self.image, (self.x, self.y))
 
 def main():
     args = parse_args()
+    logging.basicConfig(level=args.log.upper(),
+                      format='%(asctime)s - %(levelname)s - %(message)s')
     map_path = args.load_map
 
     pygame.init()
@@ -164,7 +192,9 @@ def main():
 
         screen.fill((0, 0, 0))
         draw_map(screen, tmx_data)
-        player.draw(screen)
+
+        # Draw player after map
+        screen.blit(player.image, player.rect)
 
         # Draw debug info
         font = pygame.font.SysFont(None, 24)
