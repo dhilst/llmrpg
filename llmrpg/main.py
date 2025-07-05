@@ -32,8 +32,10 @@ def draw_map(screen, tmx_data):
 
 
 class Tileset:
-    def __init__(self, path: str):
+    def __init__(self, filpath: str):
         """Load and parse a Tiled tileset XML file"""
+        path = Path(filpath)
+        self.spritesheet = pygame.image.load(path.with_suffix(".png")).convert_alpha()
         # Parse XML with lxml
         tree = etree.parse(path)
         root = tree.getroot()
@@ -103,6 +105,27 @@ class Tileset:
                     "properties": tile["properties"]
                 })
 
+    def frames(self, imageset: str):
+        """
+        Return a dict of direction to list of animation frames for the given imageset.
+        e.g. { "down": [frame1, frame2, ...], "up": [...], ... }
+        """
+        frames_dict = {}
+        if imageset not in self.animations:
+            return frames_dict  # empty dict if imageset unknown
+
+        for direction, anim_data in self.animations[imageset].items():
+            frames_list = []
+            for frame in anim_data["frames"]:
+                tileid = frame["tileid"]
+                x = (tileid % self.columns) * self.tile_width
+                y = (tileid // self.columns) * self.tile_height
+                rect = pygame.Rect(x, y, self.tile_width, self.tile_height)
+                frames_list.append(self.spritesheet.subsurface(rect))
+            frames_dict[direction] = frames_list
+
+        return frames_dict
+
     def __repr__(self):
         """Return a string representation of the tileset"""
         return (
@@ -138,19 +161,23 @@ class Player(pygame.sprite.Sprite):
         self.gamedata = gamedata
         logging.debug(f"Spritesheet loaded, size: {self.spritesheet.get_size()}")
         
-        self.frames = [
-            self.spritesheet.subsurface(pygame.Rect(0, 0, 16, 16)),
-            self.spritesheet.subsurface(pygame.Rect(16, 0, 16, 16)),
-            self.spritesheet.subsurface(pygame.Rect(32, 0, 16, 16))
-        ]
-        # self.frames = self.gamedata.characters.animations["boy"]["down"]
-        logging.debug(f"Loaded {len(self.frames)} animation frames")
-        for i, frame in enumerate(self.frames):
-            logging.debug(f"Frame {i} size: {frame.get_size()}")
+        self.frames = self.gamedata.characters.frames("boy")  # dict: direction -> frames list
+        self.direction = "down"  # default direction
+
+        # fallback in case no animation frames for direction
+        if self.direction not in self.frames:
+            # Just pick any available direction or empty list
+            self.direction = next(iter(self.frames)) if self.frames else None
+
         self.current_frame = 0
         self.animation_time = 0
         self.animation_speed = 160  # ms per frame
-        self.image = self.frames[self.current_frame]
+
+        # Set initial image
+        if self.direction and self.frames.get(self.direction):
+            self.image = self.frames[self.direction][self.current_frame]
+        else:
+            self.image = pygame.Surface((self.tile_width, self.tile_height), pygame.SRCALPHA)
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
 
         # Store the map data
@@ -170,8 +197,23 @@ class Player(pygame.sprite.Sprite):
                 self.collision_objects.append(rect)
 
     def move_to(self, new_x, new_y):
-        """Attempt to move to new tile position"""
+        """Attempt to move to new tile position and update direction"""
+        # Determine direction based on new vs current position
+        dx = new_x - self.tile_x
+        dy = new_y - self.tile_y
+
+        if dx < 0:
+            self.direction = "left"
+        elif dx > 0:
+            self.direction = "right"
+        elif dy < 0:
+            self.direction = "up"
+        elif dy > 0:
+            self.direction = "down"
+        # else no change if no movement (shouldn't happen)
+
         if self._check_collision(new_x, new_y):
+            self.moving = False
             return False  # Collision occurred
 
         self.moving = True
@@ -183,7 +225,7 @@ class Player(pygame.sprite.Sprite):
 
     def _check_collision(self, new_x, new_y):
         """Check collisions with both tiles and objects"""
-        print(f"Checking collision at ({new_x}, {new_y})")
+        logging.debug(f"Checking collision at ({new_x}, {new_y})")
         # Convert tile coordinates to pixel coordinates
         target_rect = pygame.Rect(
             new_x * self.tile_width,
@@ -209,10 +251,12 @@ class Player(pygame.sprite.Sprite):
         # Update animation
         self.animation_time += 1000/60  # Assuming 60 FPS
         if self.animation_time >= self.animation_speed:
-            self.current_frame = (self.current_frame + 1) % len(self.frames)
-            self.image = self.frames[self.current_frame]
+            if self.direction and self.direction in self.frames:
+                frames_list = self.frames[self.direction]
+                self.current_frame = (self.current_frame + 1) % len(frames_list)
+                self.image = frames_list[self.current_frame]
             self.animation_time = 0
-            logging.debug(f"Switched to frame {self.current_frame}")
+            logging.debug(f"Switched to frame {self.current_frame} direction {self.direction}")
 
         if not self.moving:
             return
@@ -253,7 +297,6 @@ def main():
 
     tmx_data = load_pygame(map_path)
 
-    characters = Tileset("sprites/characters.tsx")
 
     # Resize display to map size
     width = tmx_data.width * tmx_data.tilewidth
