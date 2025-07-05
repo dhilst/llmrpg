@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import random 
 from itertools import chain
 from pathlib import Path
@@ -200,38 +201,35 @@ class GameData:
             if name != "player"
         }
 
-    def draw_object_layer_borders(self, surface: pygame.Surface, color=(0, 0, 0), font_size=14):
-        """Draw borders and names of all objects in the object layer"""
-        if not self.objectlayer:
-            return
-        
-        # Load a font for the text rendering
-        font = pygame.font.Font(None, font_size)  # None uses default font, 24 is size
-        
-        center_x = None
-        center_y = None
-        for obj in self.objectlayer:
-            if hasattr(obj, 'points'):  # Polygonal objects
-                points = [(p[0], p[1]) for p in obj.points]
-                if len(points) > 1:
-                    pygame.draw.polygon(surface, color, points, 1)
-                    # Calculate center for polygon
-                    center_x = sum(p[0] for p in points) / len(points)
-                    center_y = sum(p[1] for p in points) / len(points)
-            else:  # Rectangular objects
-                rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
-                pygame.draw.rect(surface, color, rect, 1)
-                center_x = obj.x + obj.width / 2
-                center_y = obj.y + obj.height / 2
-            
-            # Render object name if it exists
-            if obj.name and center_x is not None and center_y is not None:
-                text = font.render(obj.name, True, color)
-                text_rect = text.get_rect(center=(center_x, center_y))
-                surface.blit(text, text_rect)
+
+@dataclass
+class Stats:
+    attack: int = 10
+    defence: int = 5
+    max_health: int = 100
+    level: int = 1
+    experience: int = 0
+    experience_to_level: int = 15
+    
+    def add_experience(self, amount: int) -> bool:
+        """Add experience and return True if leveled up"""
+        self.experience += amount
+        if self.experience >= self.experience_to_level:
+            self.level_up()
+            return True
+        return False
+    
+    def level_up(self):
+        """Increase stats when leveling up"""
+        self.level += 1
+        self.experience -= self.experience_to_level
+        self.experience_to_level = int(self.experience_to_level * 1.5)  # Increase required XP
+        self.max_health += 20
+        self.attack += 2
+        self.defence += 2
 
 class Actor(pygame.sprite.Sprite):
-    def __init__(self, x, y, imageset: str, gamedata: GameData):
+    def __init__(self, x, y, imageset: str, gamedata: GameData, stats: Stats):
         super().__init__()
 
         self.last_move_time = 0  # Track when mob last moved
@@ -241,6 +239,7 @@ class Actor(pygame.sprite.Sprite):
         self.imageset = imageset
         self.tile_width = gamedata.tmx_data.tilewidth
         self.tile_height = gamedata.tmx_data.tileheight
+        self.stats = stats
 
         # Store initial tile position
         self.tile_x = x
@@ -284,6 +283,28 @@ class Actor(pygame.sprite.Sprite):
         self.invincible = False
         self.invincibility_time = 1000  # 1 second invincibility after hit
         self.last_hit_time = 0
+
+    def calculate_damage(self, target) -> int:
+        """Calculate damage dealt to target"""
+        base_damage = max(1, self.stats.attack - target.stats.defence // 2)
+        return random.randint(base_damage // 2, base_damage)
+
+    def attack_target(self, target, current_time: int):
+        """Attack another actor"""
+        if self.invincible or target.invincible:
+            return False
+            
+        damage = self.calculate_damage(target)
+        target.take_damage(damage, current_time)
+        
+        return target.health <= 0
+
+    def take_damage(self, amount: int, current_time: int):
+        """Handle taking damage"""
+        self.health -= amount
+        self.last_hit_time = current_time
+        self.invincible = True
+        logging.info(f"{self.imageset} took {amount} damage! Health: {self.health}")
 
     def handle_player_hit(self, player, mob, current_time, game):
         """Handle what happens when player is hit by mob"""
@@ -455,14 +476,15 @@ class Game:
 
         self.players = []
         logging.debug("Creating player1 (boy) at initial position (5, 5)")
-        self.players.append(Actor(5, 5, "boy", self.gamedata))
-        self.players.append(Actor(7, 5, "girl", self.gamedata))
+        self.players.append(Actor(5, 5, "boy", self.gamedata, Stats(attack=100, defence=15)))
+        self.players.append(Actor(7, 5, "girl", self.gamedata, Stats(attack=100, defence=5)))
         self.player1 = self.players[0]
         self.player2 = self.players[1]
         logging.debug("Creating player2 (girl) at initial position (7, 5)")
 
         self.font = pygame.font.SysFont(None, 24)
-        # Spawn just ONE mob to start (baby steps)
+
+        # Max population for the mobs
         self.mobs_max_population = {
             "slime": 3, 
             "skeleton": 1,
@@ -470,23 +492,47 @@ class Game:
             "bat": 4,
             "spider": 5,
         }
+
         self.mobs_names = list(self.mobs_max_population.keys())
+        # Mobs stats by type
+        self.mobs_stats = {
+            "slime": Stats(3, 3), 
+            "skeleton": Stats(20, 20),
+            "ghost": Stats(20, 50),
+            "bat": Stats(2, 1),
+            "spider": Stats(1, 1),
+        }
+        # experience for each mob
+        self.mobs_max_exp = {
+            "slime": 3, 
+            "skeleton": 10,
+            "ghost": 20,
+            "bat": 2,
+            "spider": 1,
+        }
+
         for mob in self.mobs_names:
             self.spawn_mob_by_name(mob, max_population=self.mobs_max_population.get(mob, 1))
 
     def check_collisions(self):
-        """Check for collisions between players and mobs"""
         current_time = pygame.time.get_ticks()
         
-            
+        # Check player-mob collisions
         for player in self.players:
-            # Skip collision check if player is invincible
             if player.invincible:
-               continue 
-            for mob in self.mobs:
+                continue
+                
+            for mob in self.mobs[:]:  # Create a copy for safe removal
                 if player.rect.colliderect(mob.rect):
-                    player.handle_player_hit(player, mob, current_time, self)
-                    break  # Only handle one collision per frame
+                    # Player attacks mob
+                    if player.attack_target(mob, current_time):
+                        if mob in self.mobs:  # Player killed a mob
+                            player.stats.add_experience(self.mobs_max_exp[mob.imageset])
+                            self.mobs.remove(mob)
+                    # Mob attacks player
+                    elif mob.attack_target(player, current_time):
+                        if player.health <= 0:
+                            self.game_over()
 
     def game_over(self):
         """Handle game over state"""
@@ -507,13 +553,15 @@ class Game:
     def draw_player_stats(self):
         """Draw player stats in bottom right corner"""
         stats = [
-            f"Player 1: {self.player1.imageset}",
-            f"Position: ({self.player1.tile_x}, {self.player1.tile_y})",
-            f"Health: {self.player1.health}",
+            f"Player 1: {self.player1.imageset} (Lvl {self.player1.stats.level})",
+            f"Health: {self.player1.health}/{self.player1.stats.max_health}",
+            f"XP: {self.player1.stats.experience}/{self.player1.stats.experience_to_level}",
+            f"ATK/DEF: {self.player1.stats.attack}/{self.player1.stats.defence}",
             "",
-            f"Player 2: {self.player2.imageset}",
-            f"Position: ({self.player2.tile_x}, {self.player2.tile_y})",
-            f"Health: {self.player2.health}",
+            f"Player 2: {self.player2.imageset} (Lvl {self.player2.stats.level})",
+            f"Health: {self.player2.health}/{self.player2.stats.max_health}",
+            f"XP: {self.player2.stats.experience}/{self.player2.stats.experience_to_level}",
+            f"ATK/DEF: {self.player2.stats.attack}/{self.player2.stats.defence}"
         ]
         
         # Calculate position (bottom right with padding)
@@ -535,9 +583,13 @@ class Game:
         self.draw_actors()
         
         if self.debug:
-            self.gamedata.draw_object_layer_borders(self.screen)
+            self.draw_object_layer_borders(self.screen)
             self.draw_debug_info()
-
+        # Draw level up notification if needed
+        for player in self.players:
+            if player.stats.experience >= player.stats.experience_to_level:
+                text = self.font.render(f"{player.imageset} leveled up!", True, (255, 255, 0))
+                self.screen.blit(text, (self.width // 2 - 100, 50))
 
         self.draw_player_stats()
         pygame.display.flip()
@@ -613,7 +665,7 @@ class Game:
                 y = random.randint(min_y, max_y)
                 
                 if not self._position_has_collision(x, y):
-                    mob = Actor(x, y, imageset, self.gamedata)
+                    mob = Actor(x, y, imageset, self.gamedata, self.mobs_stats[imageset])
                     self.mobs.append(mob)
                     population += 1
                     break
@@ -644,6 +696,37 @@ class Game:
                 
         return False
 
+    def draw_object_layer_borders(self, surface: pygame.Surface, color=(0, 0, 0), font_size=14):
+        """Draw borders and names of all objects in the object layer"""
+        if not self.gamedata.objectlayer:
+            return
+        
+        # Load a font for the text rendering
+        font = pygame.font.Font(None, font_size)  # None uses default font, 24 is size
+        
+        center_x = None
+        center_y = None
+        for obj in self.gamedata.objectlayer:
+            if hasattr(obj, 'points'):  # Polygonal objects
+                points = [(p[0], p[1]) for p in obj.points]
+                if len(points) > 1:
+                    pygame.draw.polygon(surface, color, points, 1)
+                    # Calculate center for polygon
+                    center_x = sum(p[0] for p in points) / len(points)
+                    center_y = sum(p[1] for p in points) / len(points)
+            else:  # Rectangular objects
+                rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
+                pygame.draw.rect(surface, color, rect, 1)
+                center_x = obj.x + obj.width / 2
+                center_y = obj.y + obj.height / 2
+            
+            # Render object name if it exists
+            if obj.name and center_x is not None and center_y is not None:
+                text = font.render(obj.name, True, color)
+                text_rect = text.get_rect(center=(center_x, center_y))
+                surface.blit(text, text_rect)
+
+
     def draw_debug_info(self):
         """Draw all debug information including mouse position"""
         screen = self.screen
@@ -654,7 +737,7 @@ class Game:
         self._draw_mouse_position(screen)
         
         # Draw other debug info (object borders, etc.)
-        self.gamedata.draw_object_layer_borders(screen)
+        self.draw_object_layer_borders(screen)
 
     def _draw_mouse_position(self, surface):
         """Draw current mouse position and coordinates"""
@@ -697,7 +780,7 @@ class Game:
                         self.debug = not self.debug
                     elif event.key == pygame.K_r:  # Reset player1 position
                         logging.debug("Resetting player1 position")
-                        self.player1 = Actor(5, 5, "boy", self.gamedata)
+                        self.player1 = Actor(5, 5, "boy", self.gamedata, stats=self.player1.stats)
 
                 # Control player2 (skeleton) with WASD only if not moving
                 if not self.player2.moving:
@@ -711,7 +794,7 @@ class Game:
                         self.player2.move_to(self.player2.tile_x, self.player2.tile_y + 1)
                     elif event.key == pygame.K_t:  # Reset player2 position (using 't' key)
                         logging.debug("Resetting player2 position")
-                        self.player2 = Actor(7, 5, "skeleton", self.gamedata)
+                        self.player2 = Actor(7, 5, "skeleton", self.gamedata, stats=self.player2.stats)
 
     def actors(self) -> Iterable[Actor]:
         return chain(self.players, self.mobs)
