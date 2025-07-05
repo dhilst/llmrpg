@@ -1,3 +1,4 @@
+from itertools import chain
 from pathlib import Path
 import argparse
 import logging
@@ -5,7 +6,7 @@ from typing import Dict, Optional
 import pygame
 from pytmx import load_pygame
 import pytmx
-from lxml import etree
+from lxml import etree # type: ignore
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Pygame Tiled Map Renderer")
@@ -15,19 +16,22 @@ def parse_args():
     return parser.parse_args()
 
 
-def draw_map(screen, tmx_data):
-    # Draw all visible layers in proper order
-    for layer in tmx_data.visible_layers:
-        if isinstance(layer, pytmx.TiledTileLayer):
-            for x, y, gid in layer: # type: ignore
-                tile = tmx_data.get_tile_image_by_gid(gid)
-                if tile:
-                    # Convert tile to use alpha transparency
-                    tile = tile.convert_alpha()
-                    screen.blit(tile,
-                        (x * tmx_data.tilewidth + layer.offsetx,
-                         y * tmx_data.tileheight + layer.offsety))
+class PositionValidator:
+    def __init__(self, tmx_data):
+        self.tmx_data = tmx_data 
 
+    def __call__(self, x: int , y : int) -> tuple[int, int]:
+        """Ensure tile position is within map boundaries"""
+        max_tiles_x = self.tmx_data.width
+        max_tiles_y = self.tmx_data.height
+        
+        # Clamp the position to map boundaries
+        return (max(0, min(x, max_tiles_x - 1 if max_tiles_x > 0 else 0)),
+                max(0, min(y, max_tiles_y - 1 if max_tiles_y > 0 else 0)))
+
+    def is_valid(self, x: int, y: int) -> bool:
+        new_x, new_y = self(x, y)
+        return new_x == x and new_y == y
 
 
 class Tileset:
@@ -225,7 +229,7 @@ class GameData:
                 text_rect = text.get_rect(center=(center_x, center_y))
                 surface.blit(text, text_rect)
 
-class Player(pygame.sprite.Sprite):
+class Actor(pygame.sprite.Sprite):
     def __init__(self, x, y, imageset: str, gamedata: GameData):
         super().__init__()
         self.gamedata = gamedata
@@ -243,8 +247,6 @@ class Player(pygame.sprite.Sprite):
 
         # Load character spritesheet and setup animation
         logging.debug(f"Loading spritesheet from: sprites/characters.png")
-        self.spritesheet = pygame.image.load("sprites/characters.png").convert_alpha()
-        logging.debug(f"Spritesheet loaded, size: {self.spritesheet.get_size()}")
         
         self.frames = self.gamedata.characters.frames(self.imageset)  # dict: direction -> frames list
         self.direction = "down"  # default direction
@@ -364,6 +366,7 @@ class Player(pygame.sprite.Sprite):
 class Game:
     def __init__(self, map_path: str, debug: bool = False):
         self.debug = debug
+        self.mobs = []
 
         logging.debug("Initializing pygame...")
         pygame.init()
@@ -373,6 +376,7 @@ class Game:
 
         logging.debug(f"Loading TMX map: {map_path}")
         self.tmx_data = load_pygame(map_path)
+        self.pos_validator = PositionValidator(self.tmx_data)
 
         self.width = self.tmx_data.width * self.tmx_data.tilewidth
         self.height = self.tmx_data.height * self.tmx_data.tileheight
@@ -386,13 +390,37 @@ class Game:
 
         self.gamedata = GameData(self.tmx_data)
 
+        self.players = []
         logging.debug("Creating player1 (boy) at initial position (5, 5)")
-        self.player1 = Player(5, 5, "boy", self.gamedata)
-
+        self.players.append(Actor(5, 5, "boy", self.gamedata))
+        self.players.append(Actor(7, 5, "girl", self.gamedata))
+        self.player1 = self.players[0]
+        self.player2 = self.players[1]
         logging.debug("Creating player2 (girl) at initial position (7, 5)")
-        self.player2 = Player(7, 5, "girl", self.gamedata)
 
         self.font = pygame.font.SysFont(None, 24)
+        # Spawn just ONE mob to start (baby steps)
+        self.spawn_mob_by_name("skeleton")
+
+    def draw_map(self, screen, tmx_data):
+        # Draw all visible layers in proper order
+        for layer in tmx_data.visible_layers:
+            if isinstance(layer, pytmx.TiledTileLayer):
+                for x, y, gid in layer: # type: ignore
+                    tile = tmx_data.get_tile_image_by_gid(gid)
+                    if tile:
+                        # Convert tile to use alpha transparency
+                        tile = tile.convert_alpha()
+                        screen.blit(tile,
+                            (x * tmx_data.tilewidth + layer.offsetx,
+                             y * tmx_data.tileheight + layer.offsety))
+
+
+    def spawn_mob_by_name(self, imageset: str):
+        """Spawn a single mob at a fixed position"""
+        x, y = self.pos_validator(100, 100)
+        mob = Actor(x, y, imageset, self.gamedata)
+        self.mobs.append(mob)
 
     def draw_debug_info(self):
         """Draw all debug information including mouse position"""
@@ -447,7 +475,7 @@ class Game:
                         self.debug = not self.debug
                     elif event.key == pygame.K_r:  # Reset player1 position
                         logging.debug("Resetting player1 position")
-                        self.player1 = Player(5, 5, "boy", self.gamedata)
+                        self.player1 = Actor(5, 5, "boy", self.gamedata)
 
                 # Control player2 (skeleton) with WASD only if not moving
                 if not self.player2.moving:
@@ -461,19 +489,25 @@ class Game:
                         self.player2.move_to(self.player2.tile_x, self.player2.tile_y + 1)
                     elif event.key == pygame.K_t:  # Reset player2 position (using 't' key)
                         logging.debug("Resetting player2 position")
-                        self.player2 = Player(7, 5, "skeleton", self.gamedata)
+                        self.player2 = Actor(7, 5, "skeleton", self.gamedata)
+
+    def actors(self):
+        return chain(self.players, self.mobs)
 
     def update(self):
-        self.player1.update()
-        self.player2.update()
+        for actor in self.actors():
+            actor.update()
 
-    def render(self):
+    def draw_actors(self):
+        for actor in self.actors():
+            logging.info(f"Drawing {actor.imageset}")
+            self.screen.blit(actor.image, actor.rect)
+
+    def draw(self):
         self.screen.fill((0, 0, 0))
-        draw_map(self.screen, self.tmx_data)
+        self.draw_map(self.screen, self.tmx_data)
 
-        # Draw both players
-        self.screen.blit(self.player1.image, self.player1.rect)
-        self.screen.blit(self.player2.image, self.player2.rect)
+        self.draw_actors()
 
         # Display positions for both players
         if self.debug:
@@ -490,7 +524,7 @@ class Game:
         while self.running:
             self.handle_events()
             self.update()
-            self.render()
+            self.draw()
             self.clock.tick(60)
 
         pygame.quit()
