@@ -280,6 +280,35 @@ class Actor(pygame.sprite.Sprite):
         self.moving = False
         self.speed = 5  # pixels per frame
 
+        self.health = 100
+        self.invincible = False
+        self.invincibility_time = 1000  # 1 second invincibility after hit
+        self.last_hit_time = 0
+
+    def handle_player_hit(self, player, mob, current_time, game):
+        """Handle what happens when player is hit by mob"""
+        self.health -= 10  # Reduce health
+        self.last_hit_time = current_time
+        self.invincible = True
+        
+        # Apply knockback
+        knockback_distance = 2  # tiles
+        knockback_x = knockback_distance if player.tile_x < mob.tile_x else -knockback_distance
+        knockback_y = knockback_distance if player.tile_y < mob.tile_y else -knockback_distance
+        
+        new_x = player.tile_x + knockback_x
+        new_y = player.tile_y + knockback_y
+        
+        # Only move if knockback position is valid
+        if not player._check_collision(new_x, new_y):
+            player.move_to(new_x, new_y)
+        
+        logging.info(f"Player hit! Health: {self.health}")
+        
+        if self.health <= 0:
+            game.game_over()
+
+
     def random_move(self, current_time):
         """Attempt a random move if cooldown has expired"""
         if current_time - self.last_move_time < self.move_cooldown:
@@ -354,8 +383,12 @@ class Actor(pygame.sprite.Sprite):
 
         return False
 
-    def update(self):
+    def update(self, current_time: int):
         """Update player position animation"""
+        # Reset invincibility if time has passed
+        if self.invincible and (current_time - self.last_hit_time >= self.invincibility_time):
+            self.invincible = False
+
         # Update animation
         self.animation_time += 1000/60  # Assuming 60 FPS
         if self.animation_time >= self.animation_speed:
@@ -402,6 +435,7 @@ class Game:
 
         # Set a minimal display mode before loading the map so convert() calls work
         pygame.display.set_mode((1, 1))
+        pygame.mouse.set_visible(False)
 
         logging.debug(f"Loading TMX map: {map_path}")
         self.tmx_data = load_pygame(map_path)
@@ -439,6 +473,74 @@ class Game:
         self.mobs_names = list(self.mobs_max_population.keys())
         for mob in self.mobs_names:
             self.spawn_mob_by_name(mob, max_population=self.mobs_max_population.get(mob, 1))
+
+    def check_collisions(self):
+        """Check for collisions between players and mobs"""
+        current_time = pygame.time.get_ticks()
+        
+            
+        for player in self.players:
+            # Skip collision check if player is invincible
+            if player.invincible:
+               continue 
+            for mob in self.mobs:
+                if player.rect.colliderect(mob.rect):
+                    player.handle_player_hit(player, mob, current_time, self)
+                    break  # Only handle one collision per frame
+
+    def game_over(self):
+        """Handle game over state"""
+        logging.info("Game Over!")
+        # You could add game over screen logic here
+        self.running = False
+
+    def update(self):
+        current_time = pygame.time.get_ticks()
+            
+        for actor in self.actors():
+            actor.update(current_time)
+            if actor in self.mobs:
+                actor.random_move(current_time)
+                
+        self.check_collisions()  # Add this line to check collisions each frame
+
+    def draw_player_stats(self):
+        """Draw player stats in bottom right corner"""
+        stats = [
+            f"Player 1: {self.player1.imageset}",
+            f"Position: ({self.player1.tile_x}, {self.player1.tile_y})",
+            f"Health: {self.player1.health}",
+            "",
+            f"Player 2: {self.player2.imageset}",
+            f"Position: ({self.player2.tile_x}, {self.player2.tile_y})",
+            f"Health: {self.player2.health}",
+        ]
+        
+        # Calculate position (bottom right with padding)
+        padding = 10
+        line_height = 20
+        start_y = self.height - (len(stats) * line_height) - padding
+        
+        for i, stat in enumerate(stats):
+            text = self.font.render(stat, True, (255, 255, 255))
+            text_rect = text.get_rect(
+                bottomright=(self.width - padding, 
+                           start_y + (i * line_height) + line_height)
+            )
+            self.screen.blit(text, text_rect)
+
+    def draw(self):
+        self.screen.fill((0, 0, 0))
+        self.draw_map(self.screen, self.tmx_data)
+        self.draw_actors()
+        
+        if self.debug:
+            self.gamedata.draw_object_layer_borders(self.screen)
+            self.draw_debug_info()
+
+
+        self.draw_player_stats()
+        pygame.display.flip()
 
     def draw_map(self, screen, tmx_data):
         # Draw all visible layers in proper order
@@ -614,35 +716,11 @@ class Game:
     def actors(self) -> Iterable[Actor]:
         return chain(self.players, self.mobs)
 
-    def update(self):
-        current_time = pygame.time.get_ticks()
-        for actor in self.actors():
-            # Only mobs (not players) get random movement
-            if actor in self.mobs:
-                actor.random_move(current_time)
-            actor.update()
 
     def draw_actors(self):
         for actor in self.actors():
             # logging.debug(f"Drawing {actor.imageset}")
             self.screen.blit(actor.image, actor.rect)
-
-    def draw(self):
-        self.screen.fill((0, 0, 0))
-        self.draw_map(self.screen, self.tmx_data)
-
-        self.draw_actors()
-
-        # Display positions for both players
-        if self.debug:
-            text1 = self.font.render(f"Player1 Pos: {self.player1.tile_x}, {self.player1.tile_y}", True, (255, 255, 255))
-            text2 = self.font.render(f"Player2 Pos: {self.player2.tile_x}, {self.player2.tile_y}", True, (255, 255, 255))
-            self.screen.blit(text1, (10, 10))
-            self.screen.blit(text2, (10, 30))
-            self.gamedata.draw_object_layer_borders(self.screen)
-            self.draw_debug_info()
-
-        pygame.display.flip()
 
     def run(self):
         while self.running:
