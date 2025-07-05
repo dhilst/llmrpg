@@ -1,3 +1,4 @@
+import random 
 from itertools import chain
 from pathlib import Path
 import argparse
@@ -400,7 +401,16 @@ class Game:
 
         self.font = pygame.font.SysFont(None, 24)
         # Spawn just ONE mob to start (baby steps)
-        self.spawn_mob_by_name("skeleton")
+        self.mobs_max_population = {
+            "slime": 3, 
+            "skeleton": 1,
+            "ghost": 1,
+            "bat": 4,
+            "spider": 5,
+        }
+        self.mobs_names = list(self.mobs_max_population.keys())
+        for mob in self.mobs_names:
+            self.spawn_mob_by_name(mob, max_population=self.mobs_max_population.get(mob, 1))
 
     def draw_map(self, screen, tmx_data):
         # Draw all visible layers in proper order
@@ -416,11 +426,93 @@ class Game:
                              y * tmx_data.tileheight + layer.offsety))
 
 
-    def spawn_mob_by_name(self, imageset: str):
-        """Spawn a single mob at a fixed position"""
-        x, y = self.pos_validator(100, 100)
-        mob = Actor(x, y, imageset, self.gamedata)
-        self.mobs.append(mob)
+    def spawn_mob_by_name(self, imageset: str, 
+                          /,
+                          spawn_area: str | None = None, 
+                          min_x: int = 0, max_x: int | None = None,
+                          min_y: int = 0, max_y: int | None = None,
+                          max_population: int = 1,
+                          ):
+        """Spawn a mob at a random valid position
+        
+        Args:
+            imageset: The name of the mob's imageset
+            spawn_area: Optional name of spawn area to constrain to
+            min_x: Minimum x tile coordinate (inclusive) - ignored if spawn_area specified
+            max_x: Maximum x tile coordinate (inclusive) - ignored if spawn_area specified
+            min_y: Minimum y tile coordinate (inclusive) - ignored if spawn_area specified
+            max_y: Maximum y tile coordinate (inclusive) - ignored if spawn_area specified
+        """
+        spawn_area = imageset if spawn_area is None else spawn_area
+        # If spawn area specified, use its bounds
+        if spawn_area:
+            spawn_rect = self.gamedata.get_spawn_area(spawn_area)
+            if spawn_rect is None:
+                logging.warning(f"Spawn area '{spawn_area}' not found")
+                return
+                
+            # Convert pixel rect to tile coordinates
+            tile_width = self.tmx_data.tilewidth
+            tile_height = self.tmx_data.tileheight
+            min_x = spawn_rect.x // tile_width
+            max_x = (spawn_rect.x + spawn_rect.width) // tile_width
+            min_y = spawn_rect.y // tile_height
+            max_y = (spawn_rect.y + spawn_rect.height) // tile_height
+
+        population = 0
+        while population < max_population:
+            # Rest of the method remains the same as before
+            if max_x is None:
+                max_x = self.tmx_data.width - 1
+            if max_y is None:
+                max_y = self.tmx_data.height - 1
+                
+            min_x = max(0, min(min_x, self.tmx_data.width - 1))
+            max_x = max(0, min(max_x, self.tmx_data.width - 1))
+            min_y = max(0, min(min_y, self.tmx_data.height - 1))
+            max_y = max(0, min(max_y, self.tmx_data.height - 1))
+            
+            if min_x > max_x:
+                min_x, max_x = max_x, min_x
+            if min_y > max_y:
+                min_y, max_y = max_y, min_y
+            
+            max_attempts = 10
+            for _ in range(max_attempts):
+                x = random.randint(min_x, max_x)
+                y = random.randint(min_y, max_y)
+                
+                if not self._position_has_collision(x, y):
+                    mob = Actor(x, y, imageset, self.gamedata)
+                    self.mobs.append(mob)
+                    population += 1
+                    break
+                else:
+                    logging.warning(f"Could not find valid spawn position for {imageset} in area "
+                                   f"x:{min_x}-{max_x}, y:{min_y}-{max_y} after {max_attempts} attempts")
+                    return
+
+    def _position_has_collision(self, x: int, y: int) -> bool:
+        """Check if a tile position has any collisions"""
+        # Create a temporary rect for the position
+        temp_rect = pygame.Rect(
+            x * self.tmx_data.tilewidth,
+            y * self.tmx_data.tileheight,
+            self.tmx_data.tilewidth,
+            self.tmx_data.tileheight
+        )
+        
+        # Check against all collision objects
+        for obj_rect in self.gamedata.collision_objects:
+            if temp_rect.colliderect(obj_rect):
+                return True
+        
+        # Check if position is occupied by any actor
+        for actor in self.actors():
+            if actor.tile_x == x and actor.tile_y == y:
+                return True
+                
+        return False
 
     def draw_debug_info(self):
         """Draw all debug information including mouse position"""
@@ -500,7 +592,7 @@ class Game:
 
     def draw_actors(self):
         for actor in self.actors():
-            logging.info(f"Drawing {actor.imageset}")
+            # logging.debug(f"Drawing {actor.imageset}")
             self.screen.blit(actor.image, actor.rect)
 
     def draw(self):
