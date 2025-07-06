@@ -209,7 +209,7 @@ class Stats:
     max_health: int = 100
     level: int = 1
     experience: int = 0
-    experience_to_level: int = 15
+    experience_to_level: int = 20
     
     def add_experience(self, amount: int) -> bool:
         """Add experience and return True if leveled up"""
@@ -229,12 +229,14 @@ class Stats:
         self.defence += 2
 
 class Actor(pygame.sprite.Sprite):
-    def __init__(self, x, y, imageset: str, gamedata: GameData, stats: Stats):
+    def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
         super().__init__()
 
         self.last_move_time = 0  # Track when mob last moved
         self.move_cooldown = 1000  # 3 seconds in milliseconds
 
+        self.game = game
+        gamedata = game.gamedata
         self.gamedata = gamedata
         self.imageset = imageset
         self.tile_width = gamedata.tmx_data.tilewidth
@@ -289,48 +291,25 @@ class Actor(pygame.sprite.Sprite):
         base_damage = max(1, self.stats.attack - target.stats.defence // 2)
         return random.randint(base_damage // 2, base_damage)
 
-    def attack_target(self, target, current_time: int):
-        """Attack another actor"""
+    def attack_target(self, target: "Actor", current_time: int) -> bool:
+        """Attack another actor and return True if target was killed"""
         if self.invincible or target.invincible:
             return False
             
         damage = self.calculate_damage(target)
         target.take_damage(damage, current_time)
         
+        # Return whether target was killed
         return target.health <= 0
 
     def take_damage(self, amount: int, current_time: int):
         """Handle taking damage"""
-        self.health -= amount
+        self.health = max(0, self.health - amount)  # Ensure health doesn't go below 0
         self.last_hit_time = current_time
         self.invincible = True
         logging.info(f"{self.imageset} took {amount} damage! Health: {self.health}")
 
-    def handle_player_hit(self, player, mob, current_time, game):
-        """Handle what happens when player is hit by mob"""
-        self.health -= 10  # Reduce health
-        self.last_hit_time = current_time
-        self.invincible = True
-        
-        # Apply knockback
-        knockback_distance = 2  # tiles
-        knockback_x = knockback_distance if player.tile_x < mob.tile_x else -knockback_distance
-        knockback_y = knockback_distance if player.tile_y < mob.tile_y else -knockback_distance
-        
-        new_x = player.tile_x + knockback_x
-        new_y = player.tile_y + knockback_y
-        
-        # Only move if knockback position is valid
-        if not player._check_collision(new_x, new_y):
-            player.move_to(new_x, new_y)
-        
-        logging.info(f"Player hit! Health: {self.health}")
-        
-        if self.health <= 0:
-            game.game_over()
-
-
-    def random_move(self, current_time):
+    def random_move(self, current_time: int):
         """Attempt a random move if cooldown has expired"""
         if current_time - self.last_move_time < self.move_cooldown:
             return False
@@ -349,13 +328,17 @@ class Actor(pygame.sprite.Sprite):
         
         # Try each direction until one works
         for new_x, new_y in directions:
-            if self.move_to(new_x, new_y):
+            if self.move_to(new_x, new_y, current_time):
                 self.last_move_time = current_time
                 return True
         return False
 
-    def move_to(self, new_x, new_y):
+    def move_to(self, new_x: int, new_y: int, current_time: int) -> bool:
         """Attempt to move to new tile position and update direction"""
+        # First check if we're already at this position
+        if new_x == self.tile_x and new_y == self.tile_y:
+            return False
+            
         # Determine direction based on new vs current position
         dx = new_x - self.tile_x
         dy = new_y - self.tile_y
@@ -368,11 +351,10 @@ class Actor(pygame.sprite.Sprite):
             self.direction = "up"
         elif dy > 0:
             self.direction = "down"
-        # else no change if no movement (shouldn't happen)
 
-        if self._check_collision(new_x, new_y):
-            self.moving = False
-            return False  # Collision occurred
+        # Check collision before allowing movement
+        if self._check_collision(new_x, new_y, current_time):
+            return False
 
         self.moving = True
         self.target_x = new_x * self.tile_width
@@ -381,9 +363,8 @@ class Actor(pygame.sprite.Sprite):
         self.target_tile_y = new_y
         return True
 
-    def _check_collision(self, new_x, new_y):
-        """Check collisions with both tiles and objects"""
-        logging.debug(f"Checking collision at ({new_x}, {new_y})")
+    def _check_collision(self, new_x: int, new_y: int, current_time: int) -> bool:
+        """Check collisions with both tiles, objects, and other actors"""
         # Convert tile coordinates to pixel coordinates
         target_rect = pygame.Rect(
             new_x * self.tile_width,
@@ -402,6 +383,11 @@ class Actor(pygame.sprite.Sprite):
             if target_rect.colliderect(obj_rect):
                 return True
 
+        for actor in self.game.actors():
+            if actor is not self and actor.tile_x == new_x and actor.tile_y == new_y:
+                self.attack_target(actor, current_time)
+                return True
+
         return False
 
     def update(self, current_time: int):
@@ -418,12 +404,9 @@ class Actor(pygame.sprite.Sprite):
                 self.current_frame = (self.current_frame + 1) % len(frames_list)
                 self.image = frames_list[self.current_frame]
             self.animation_time = 0
-            logging.debug(f"Switched to frame {self.current_frame} direction {self.direction}")
 
         if not self.moving:
             return
-        
-        logging.debug(f"Moving from ({self.tile_x},{self.tile_y}) to ({self.target_tile_x},{self.target_tile_y})")
 
         # Calculate direction and step
         dx = self.target_x - self.x
@@ -476,8 +459,8 @@ class Game:
 
         self.players = []
         logging.debug("Creating player1 (boy) at initial position (5, 5)")
-        self.players.append(Actor(5, 5, "boy", self.gamedata, Stats(attack=100, defence=15)))
-        self.players.append(Actor(7, 5, "girl", self.gamedata, Stats(attack=100, defence=5)))
+        self.players.append(Actor(5, 5, "boy", self, Stats(attack=100, defence=15)))
+        self.players.append(Actor(7, 5, "girl", self, Stats(attack=100, defence=5)))
         self.player1 = self.players[0]
         self.player2 = self.players[1]
         logging.debug("Creating player2 (girl) at initial position (7, 5)")
@@ -514,26 +497,6 @@ class Game:
         for mob in self.mobs_names:
             self.spawn_mob_by_name(mob, max_population=self.mobs_max_population.get(mob, 1))
 
-    def check_collisions(self):
-        current_time = pygame.time.get_ticks()
-        
-        # Check player-mob collisions
-        for player in self.players:
-            if player.invincible:
-                continue
-                
-            for mob in self.mobs[:]:  # Create a copy for safe removal
-                if player.rect.colliderect(mob.rect):
-                    # Player attacks mob
-                    if player.attack_target(mob, current_time):
-                        if mob in self.mobs:  # Player killed a mob
-                            player.stats.add_experience(self.mobs_max_exp[mob.imageset])
-                            self.mobs.remove(mob)
-                    # Mob attacks player
-                    elif mob.attack_target(player, current_time):
-                        if player.health <= 0:
-                            self.game_over()
-
     def game_over(self):
         """Handle game over state"""
         logging.info("Game Over!")
@@ -547,8 +510,6 @@ class Game:
             actor.update(current_time)
             if actor in self.mobs:
                 actor.random_move(current_time)
-                
-        self.check_collisions()  # Add this line to check collisions each frame
 
     def draw_player_stats(self):
         """Draw player stats in bottom right corner"""
@@ -665,7 +626,7 @@ class Game:
                 y = random.randint(min_y, max_y)
                 
                 if not self._position_has_collision(x, y):
-                    mob = Actor(x, y, imageset, self.gamedata, self.mobs_stats[imageset])
+                    mob = Actor(x, y, imageset, self, self.mobs_stats[imageset])
                     self.mobs.append(mob)
                     population += 1
                     break
@@ -761,6 +722,7 @@ class Game:
 
     def handle_events(self):
         for event in pygame.event.get():
+            current_time = pygame.time.get_ticks()
             if event.type == pygame.QUIT:
                 logging.debug("Quit event detected")
                 self.running = False
@@ -769,32 +731,40 @@ class Game:
                 # Control player1 (boy) with arrow keys only if not moving
                 if not self.player1.moving:
                     if event.key == pygame.K_LEFT:
-                        self.player1.move_to(self.player1.tile_x - 1, self.player1.tile_y)
+                        self.player1.move_to(self.player1.tile_x - 1, self.player1.tile_y,
+                                             current_time)
                     elif event.key == pygame.K_RIGHT:
-                        self.player1.move_to(self.player1.tile_x + 1, self.player1.tile_y)
+                        self.player1.move_to(self.player1.tile_x + 1, self.player1.tile_y,
+                                             current_time)
                     elif event.key == pygame.K_UP:
-                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y - 1)
+                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y - 1,
+                                             current_time)
                     elif event.key == pygame.K_DOWN:
-                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y + 1)
+                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y + 1,
+                                             current_time)
                     elif event.key == pygame.K_h:
                         self.debug = not self.debug
                     elif event.key == pygame.K_r:  # Reset player1 position
                         logging.debug("Resetting player1 position")
-                        self.player1 = Actor(5, 5, "boy", self.gamedata, stats=self.player1.stats)
+                        self.player1 = Actor(5, 5, "boy", self, stats=self.player1.stats)
 
                 # Control player2 (skeleton) with WASD only if not moving
                 if not self.player2.moving:
                     if event.key == pygame.K_a:
-                        self.player2.move_to(self.player2.tile_x - 1, self.player2.tile_y)
+                        self.player2.move_to(self.player2.tile_x - 1, self.player2.tile_y,
+                                             current_time)
                     elif event.key == pygame.K_d:
-                        self.player2.move_to(self.player2.tile_x + 1, self.player2.tile_y)
+                        self.player2.move_to(self.player2.tile_x + 1, self.player2.tile_y,
+                                             current_time)
                     elif event.key == pygame.K_w:
-                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y - 1)
+                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y - 1,
+                                             current_time)
                     elif event.key == pygame.K_s:
-                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y + 1)
+                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y + 1,
+                                             current_time)
                     elif event.key == pygame.K_t:  # Reset player2 position (using 't' key)
                         logging.debug("Resetting player2 position")
-                        self.player2 = Actor(7, 5, "skeleton", self.gamedata, stats=self.player2.stats)
+                        self.player2 = Actor(7, 5, "skeleton", self, stats=self.player2.stats)
 
     def actors(self) -> Iterable[Actor]:
         return chain(self.players, self.mobs)
