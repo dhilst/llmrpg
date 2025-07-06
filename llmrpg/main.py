@@ -4,7 +4,7 @@ from itertools import chain
 from pathlib import Path
 import argparse
 import logging
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Literal, Optional
 import pygame
 from pytmx import load_pygame
 import pytmx
@@ -301,9 +301,10 @@ class BlinkEffect:
 
 
 class Actor(pygame.sprite.Sprite):
-    def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
+    def __init__(self, x, y, imageset: str, game: "Game", stats: Stats, kind: Literal["player", "mob"]):
         super().__init__()
 
+        self.kind = kind
         self.last_move_time = 0  # Track when mob last moved
         self.move_cooldown = 1000  # 3 seconds in milliseconds
 
@@ -377,6 +378,9 @@ class Actor(pygame.sprite.Sprite):
     def attack_target(self, target: "Actor", current_time: int) -> bool:
         """Attack another actor and return True if target was killed"""
         # Check if target is currently invincible due to a BlinkEffect
+        if target.kind == self.kind:
+            return False
+
         for effect in self.effects:
             if isinstance(effect, BlinkEffect) and effect.is_effect_active():
                 return False # Cannot attack if currently blinking due to invincibility
@@ -384,8 +388,11 @@ class Actor(pygame.sprite.Sprite):
         damage = self.calculate_damage(target)
         target.take_damage(damage, current_time)
 
+        if target.is_dead():
+            self.stats.add_experience(self.game.mobs_max_exp[target.imageset] * self.game.exp_modifier)
+
         # Return whether target was killed
-        return target.health <= 0
+        return target.is_dead()
 
     def take_damage(self, amount: int, current_time: int):
         """Handle taking damage"""
@@ -584,8 +591,8 @@ class Game:
 
         self.players = []
         logging.debug("Creating player1 (boy) at initial position (5, 5)")
-        self.players.append(Actor(5, 5, "boy", self, Stats(attack=100, defence=15)))
-        self.players.append(Actor(7, 5, "girl", self, Stats(attack=100, defence=5)))
+        self.players.append(Actor(5, 5, "boy", self, Stats(attack=100, defence=15), "player"))
+        self.players.append(Actor(7, 5, "girl", self, Stats(attack=100, defence=5), "player"))
         self.player1 = self.players[0]
         self.player2 = self.players[1]
         logging.debug("Creating player2 (girl) at initial position (7, 5)")
@@ -618,6 +625,7 @@ class Game:
             "bat": 2,
             "spider": 1,
         }
+        self.exp_modifier = 2
 
         for mob in self.mobs_names:
             self.spawn_mob_by_name(mob, max_population=self.mobs_max_population.get(mob, 1))
@@ -752,7 +760,7 @@ class Game:
                 y = random.randint(min_y, max_y)
 
                 if not self._position_has_collision(x, y):
-                    mob = Actor(x, y, imageset, self, self.mobs_stats[imageset])
+                    mob = Actor(x, y, imageset, self, self.mobs_stats[imageset], "mob")
                     self.mobs.append(mob)
                     population += 1
                     break
@@ -872,7 +880,7 @@ class Game:
                         self.debug = not self.debug
                     elif event.key == pygame.K_r:  # Reset player1 position
                         logging.debug("Resetting player1 position")
-                        self.player1 = Actor(5, 5, "boy", self, stats=self.player1.stats)
+                        self.player1 = Actor(5, 5, "boy", self, stats=self.player1.stats, kind="player")
 
                 # Control player2 (skeleton) with WASD only if not moving
                 if not self.player2.moving:
@@ -890,7 +898,7 @@ class Game:
                                              current_time)
                     elif event.key == pygame.K_t:  # Reset player2 position (using 't' key)
                         logging.debug("Resetting player2 position")
-                        self.player2 = Actor(7, 5, "skeleton", self, stats=self.player2.stats)
+                        self.player2 = Actor(7, 5, "skeleton", self, stats=self.player2.stats, kind="player")
 
     def actors(self) -> Iterable[Actor]:
         return chain(self.players, self.mobs)
