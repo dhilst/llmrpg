@@ -13,7 +13,7 @@
  </tile>
  <tile id="2" type="dead">
   <properties>
-   <property name="imagset" value="girl"/>
+   <property name="imageset" value="girl"/>
   </properties>
  </tile>
  <tile id="3" type="dead">
@@ -28,7 +28,7 @@
  </tile>
  <tile id="5" type="dead">
   <properties>
-   <property name="imagset" value="girl"/>
+   <property name="imageset" value="girl"/>
   </properties>
  </tile>
  <tile id="6" type="dead">
