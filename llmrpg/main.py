@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-import random 
+import random
 from itertools import chain
 from pathlib import Path
 import argparse
 import logging
-from typing import Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 import pygame
 from pytmx import load_pygame
 import pytmx
@@ -13,20 +13,20 @@ from lxml import etree # type: ignore
 def parse_args():
     parser = argparse.ArgumentParser(description="Pygame Tiled Map Renderer")
     parser.add_argument('--load-map', required=True, help='Path to the .tmx Tiled map file')
-    parser.add_argument('--log', choices=['debug', 'info', 'warning', 'error'], 
-                      default='info', help='Set logging level (default: info)')
+    parser.add_argument('--log', choices=['debug', 'info', 'warning', 'error'],
+                        default='info', help='Set logging level (default: info)')
     return parser.parse_args()
 
 
 class PositionValidator:
     def __init__(self, tmx_data):
-        self.tmx_data = tmx_data 
+        self.tmx_data = tmx_data
 
     def __call__(self, x: int , y : int) -> tuple[int, int]:
         """Ensure tile position is within map boundaries"""
         max_tiles_x = self.tmx_data.width
         max_tiles_y = self.tmx_data.height
-        
+
         # Clamp the position to map boundaries
         return (max(0, min(x, max_tiles_x - 1 if max_tiles_x > 0 else 0)),
                 max(0, min(y, max_tiles_y - 1 if max_tiles_y > 0 else 0)))
@@ -44,14 +44,14 @@ class Tileset:
         # Parse XML with lxml
         tree = etree.parse(path)
         root = tree.getroot()
-        
+
         # Extract basic tileset properties
         self.name = root.get("name", "untitled")
         self.tile_width = int(root.get("tilewidth", 16))
         self.tile_height = int(root.get("tileheight", 16))
         self.tile_count = int(root.get("tilecount", 0))
         self.columns = int(root.get("columns", 0))
-        
+
         # Get the image source path
         image_node = root.find("image")
         if image_node is not None:
@@ -64,18 +64,18 @@ class Tileset:
             self.image_height = 0
 
         # Parse individual tile properties and animations
-        self.tiles = {}
+        self._tiles = {}
         for tile_node in root.findall("tile"):
             tile_id = int(tile_node.get("id"))
             tile_type = tile_node.get("type", "")
-            
+
             # Parse properties
             props = {}
             properties_node = tile_node.find("properties")
             if properties_node is not None:
                 for prop_node in properties_node.findall("property"):
                     props[prop_node.get("name")] = prop_node.get("value")
-            
+
             # Parse animations
             animation = []
             anim_node = tile_node.find("animation")
@@ -85,8 +85,8 @@ class Tileset:
                         "tileid": int(frame_node.get("tileid")),
                         "duration": int(frame_node.get("duration"))
                     })
-            
-            self.tiles[tile_id] = {
+
+            self._tiles[tile_id] = {
                 "type": tile_type,
                 "properties": props,
                 "animation": animation
@@ -94,27 +94,28 @@ class Tileset:
 
         # Group animations by imageset and direction
         self.animations = {}
-        for tile in self.tiles.values():
+        for tile in self._tiles.values():
             if tile["animation"]:
                 imageset = tile["properties"].get("imageset", "unknown")
                 direction = tile["properties"].get("direction", "unknown")
-                
+
                 if imageset not in self.animations:
                     self.animations[imageset] = {}
                 if direction not in self.animations[imageset]:
                     self.animations[imageset][direction] = {}
-                
+
                 self.animations[imageset][direction].update(**{
                     "frames": tile["animation"],
                     "type": tile["type"],
                     "properties": tile["properties"]
                 })
 
-    def frames(self, imageset: str):
+    def frames(self, imageset: str) -> dict[str, list[pygame.Surface]]:
         """
         Return a dict of direction to list of animation frames for the given imageset.
         e.g. { "down": [frame1, frame2, ...], "up": [...], ... }
         """
+
         frames_dict = {}
         if imageset not in self.animations:
             return frames_dict  # empty dict if imageset unknown
@@ -123,13 +124,21 @@ class Tileset:
             frames_list = []
             for frame in anim_data["frames"]:
                 tileid = frame["tileid"]
-                x = (tileid % self.columns) * self.tile_width
-                y = (tileid // self.columns) * self.tile_height
-                rect = pygame.Rect(x, y, self.tile_width, self.tile_height)
-                frames_list.append(self.spritesheet.subsurface(rect))
+                frames_list.append(self.tile(tileid))
             frames_dict[direction] = frames_list
 
         return frames_dict
+
+    def tile(self, tileid: int) -> pygame.Surface:
+        x = (tileid % self.columns) * self.tile_width
+        y = (tileid // self.columns) * self.tile_height
+        rect = pygame.Rect(x, y, self.tile_width, self.tile_height)
+        return self.spritesheet.subsurface(rect)
+
+
+    def tiles(self, imageset: str) -> list[pygame.Surface]:
+        return [self.tile(tileid) for tileid, tile in self._tiles.items()
+            if tile.get("properties", {}).get("imageset") == imageset]
 
     def __repr__(self):
         """Return a string representation of the tileset"""
@@ -137,9 +146,8 @@ class Tileset:
             f"<Tileset {self.name} ({self.tile_width}x{self.tile_height}) "
             f"tiles={self.tile_count} cols={self.columns} "
             f"image='{self.image_source}' "
-            f"tiles_with_props={len([t for t in self.tiles.values() if t['properties']])}>"
+            f"tiles_with_props={len([t for t in self._tiles.values() if t['properties']])}>"
         )
-
 
 
 class GameData:
@@ -148,6 +156,7 @@ class GameData:
         self.objectlayer = self._get_object_layer()
         self.spawn_areas = self._load_spawn_areas()  # Dictionary of spawn areas
         self.characters = Tileset("sprites/characters.tsx")
+        self.dead_characters = Tileset("sprites/dead.tsx")
         self.collision_objects = []
         # get_layer_by_name returns an  TiledObjectGroup, not int, which is interable
         # the typehint says it returns int for some reason, so I'm skipping typechecking here
@@ -156,48 +165,48 @@ class GameData:
                 # Create a rect for the collision object
                 rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
                 self.collision_objects.append(rect)
-        
+
     def _get_object_layer(self) -> Optional[pytmx.TiledObjectGroup]:
         """Find and return the object layer from the TMX data."""
         for layer in self.tmx_data.layers:
             if isinstance(layer, pytmx.TiledObjectGroup):
                 return layer
         return None
-    
+
     def _load_spawn_areas(self) -> Dict[str, pygame.Rect]:
         """
         Load all spawn areas from the object layer.
         Returns dictionary with {spawn_name: pygame.Rect}
         """
         spawns = {}
-        
+
         if not self.objectlayer:
             return spawns
-            
+
         for obj in self.objectlayer:
             if obj.type == "spawn":
                 spawns[obj.name] = pygame.Rect(
-                    obj.x, 
-                    obj.y, 
-                    obj.width, 
+                    obj.x,
+                    obj.y,
+                    obj.width,
                     obj.height
                 )
-        
+
         return spawns
-    
+
     def get_spawn_area(self, name: str) -> Optional[pygame.Rect]:
         """Get a specific spawn area by name"""
         return self.spawn_areas.get(name)
-    
+
     def get_player_spawn(self) -> Optional[pygame.Rect]:
         """Convenience method to get player spawn"""
         return self.get_spawn_area("player")
-    
+
     def get_enemy_spawns(self) -> Dict[str, pygame.Rect]:
         """Get all non-player spawn areas"""
         return {
-            name: rect 
-            for name, rect in self.spawn_areas.items() 
+            name: rect
+            for name, rect in self.spawn_areas.items()
             if name != "player"
         }
 
@@ -210,7 +219,7 @@ class Stats:
     level: int = 1
     experience: int = 0
     experience_to_level: int = 20
-    
+
     def add_experience(self, amount: int) -> bool:
         """Add experience and return True if leveled up"""
         self.experience += amount
@@ -218,7 +227,7 @@ class Stats:
             self.level_up()
             return True
         return False
-    
+
     def level_up(self):
         """Increase stats when leveling up"""
         self.level += 1
@@ -227,6 +236,69 @@ class Stats:
         self.max_health += 20
         self.attack += 2
         self.defence += 2
+
+
+# --- New BlinkEffect Class ---
+class BlinkEffect:
+    """
+    Manages a blinking state for an actor.
+    """
+    def __init__(self, duration_ms: int, blink_interval_ms: int):
+        """
+        Initializes the BlinkEffect.
+
+        Args:
+            duration_ms (int): The total duration of the blink effect in milliseconds.
+            blink_interval_ms (int): The interval at which the blink state toggles in milliseconds.
+        """
+        self.duration_ms = duration_ms
+        self.blink_interval_ms = blink_interval_ms
+        self.elapsed_time = 0
+        self.blink_timer = 0
+        self.is_blinking_on = True  # True if the object should be visible during the blink cycle
+        self.is_active = True      # True if the effect is currently active
+
+    def update(self, dt_ms: int):
+        """
+        Updates the blink effect's state.
+
+        Args:
+            dt_ms (int): The time elapsed since the last update in milliseconds.
+        """
+        if not self.is_active:
+            return
+
+        self.elapsed_time += dt_ms
+        self.blink_timer += dt_ms
+
+        if self.elapsed_time >= self.duration_ms:
+            self.is_active = False
+            self.is_blinking_on = True  # Ensure visibility when effect ends
+            return
+
+        if self.blink_timer >= self.blink_interval_ms:
+            self.is_blinking_on = not self.is_blinking_on
+            self.blink_timer = 0
+
+    def get_visibility(self) -> bool:
+        """
+        Returns whether the actor should be visible based on the blink effect.
+
+        Returns:
+            bool: True if the actor should be visible, False otherwise.
+        """
+        return self.is_blinking_on
+
+    def is_effect_active(self) -> bool:
+        """
+        Checks if the blink effect is still active.
+
+        Returns:
+            bool: True if the effect is active, False otherwise.
+        """
+        return self.is_active
+# --- End BlinkEffect Class ---
+
 
 class Actor(pygame.sprite.Sprite):
     def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
@@ -253,8 +325,9 @@ class Actor(pygame.sprite.Sprite):
 
         # Load character spritesheet and setup animation
         logging.debug(f"Loading spritesheet from: sprites/characters.png")
-        
+
         self.frames = self.gamedata.characters.frames(self.imageset)  # dict: direction -> frames list
+        self.frames["dead"] = self.gamedata.dead_characters.tiles(self.imageset)
         self.direction = "down"  # default direction
 
         # fallback in case no animation frames for direction
@@ -275,16 +348,26 @@ class Actor(pygame.sprite.Sprite):
 
         # Store the map data
         self.tile_layers = [layer for layer in gamedata.tmx_data.visible_layers
-                           if isinstance(layer, pytmx.TiledTileLayer)]
+                             if isinstance(layer, pytmx.TiledTileLayer)]
 
         # Track movement
         self.moving = False
         self.speed = 5  # pixels per frame
 
         self.health = 100
-        self.invincible = False
-        self.invincibility_time = 1000  # 1 second invincibility after hit
-        self.last_hit_time = 0
+        # --- Integration of BlinkEffect ---
+        self.effects = [] # List to hold various effects
+
+    def is_dead(self) -> bool:
+        return self.health <= 0
+
+    def add_effect(self, effect):
+        """
+        Adds an effect to the actor.
+        Args:
+            effect: An instance of an effect class (e.g., BlinkEffect).
+        """
+        self.effects.append(effect)
 
     def calculate_damage(self, target) -> int:
         """Calculate damage dealt to target"""
@@ -293,30 +376,53 @@ class Actor(pygame.sprite.Sprite):
 
     def attack_target(self, target: "Actor", current_time: int) -> bool:
         """Attack another actor and return True if target was killed"""
-        if self.invincible or target.invincible:
-            return False
-            
+        # Check if target is currently invincible due to a BlinkEffect
+        for effect in self.effects:
+            if isinstance(effect, BlinkEffect) and effect.is_effect_active():
+                return False # Cannot attack if currently blinking due to invincibility
+
         damage = self.calculate_damage(target)
         target.take_damage(damage, current_time)
-        
+
         # Return whether target was killed
         return target.health <= 0
 
     def take_damage(self, amount: int, current_time: int):
         """Handle taking damage"""
+        if self.is_dead():
+            return
+
+        # Check if the actor is currently invincible
+        for effect in self.effects:
+            if isinstance(effect, BlinkEffect) and effect.is_effect_active():
+                return # Do not take damage if currently invincible
+
         self.health = max(0, self.health - amount)  # Ensure health doesn't go below 0
-        self.last_hit_time = current_time
-        self.invincible = True
         logging.info(f"{self.imageset} took {amount} damage! Health: {self.health}")
+
+        # Apply a blink effect for invincibility
+        # Ensure only one invincibility blink effect is active at a time
+        for effect in list(self.effects): # Iterate over a copy
+            if isinstance(effect, BlinkEffect) and effect.is_effect_active():
+                self.effects.remove(effect) # Remove any existing blink effects
+
+        if self.is_dead():
+            self.current_frame = 0
+            self.direction = "dead"
+            return
+
+        invincibility_blink = BlinkEffect(duration_ms=1000, blink_interval_ms=100)
+        self.add_effect(invincibility_blink)
+
 
     def random_move(self, current_time: int):
         """Attempt a random move if cooldown has expired"""
         if current_time - self.last_move_time < self.move_cooldown:
             return False
-            
+
         if self.moving:
             return False
-            
+
         # Choose a random direction
         directions = [
             (self.tile_x - 1, self.tile_y),  # left
@@ -325,7 +431,7 @@ class Actor(pygame.sprite.Sprite):
             (self.tile_x, self.tile_y + 1)   # down
         ]
         random.shuffle(directions)
-        
+
         # Try each direction until one works
         for new_x, new_y in directions:
             if self.move_to(new_x, new_y, current_time):
@@ -338,7 +444,7 @@ class Actor(pygame.sprite.Sprite):
         # First check if we're already at this position
         if new_x == self.tile_x and new_y == self.tile_y:
             return False
-            
+
         # Determine direction based on new vs current position
         dx = new_x - self.tile_x
         dy = new_y - self.tile_y
@@ -384,17 +490,22 @@ class Actor(pygame.sprite.Sprite):
                 return True
 
         for actor in self.game.actors():
-            if actor is not self and actor.tile_x == new_x and actor.tile_y == new_y:
+            if actor is not self and actor.tile_x == new_x and actor.tile_y == new_y and not actor.is_dead():
                 self.attack_target(actor, current_time)
                 return True
 
         return False
 
     def update(self, current_time: int):
-        """Update player position animation"""
-        # Reset invincibility if time has passed
-        if self.invincible and (current_time - self.last_hit_time >= self.invincibility_time):
-            self.invincible = False
+        """Update player position, animation, and effects."""
+        # Update all active effects
+        # Iterate over a copy of the list to safely remove effects during iteration
+        for effect in list(self.effects):
+            # dt_ms for effects will be the delta time from the game loop, 
+            # which we are assuming is 1000/60 for animation updates
+            effect.update(1000/60) 
+            if not effect.is_effect_active():
+                self.effects.remove(effect)
 
         # Update animation
         self.animation_time += 1000/60  # Assuming 60 FPS
@@ -427,6 +538,20 @@ class Actor(pygame.sprite.Sprite):
             self.tile_x = self.target_tile_x
             self.tile_y = self.target_tile_y
             self.moving = False
+
+    def draw(self, screen):
+        """
+        Draws the actor on the screen, considering any active effects like blinking.
+        """
+        should_draw = True
+        for effect in self.effects:
+            if isinstance(effect, BlinkEffect):
+                if not effect.get_visibility():
+                    should_draw = False
+                    break # If any blink effect says don't draw, then don't draw
+
+        if should_draw:
+            screen.blit(self.image, self.rect)
 
 
 class Game:
@@ -469,7 +594,7 @@ class Game:
 
         # Max population for the mobs
         self.mobs_max_population = {
-            "slime": 3, 
+            "slime": 3,
             "skeleton": 1,
             "ghost": 1,
             "bat": 4,
@@ -479,7 +604,7 @@ class Game:
         self.mobs_names = list(self.mobs_max_population.keys())
         # Mobs stats by type
         self.mobs_stats = {
-            "slime": Stats(3, 3), 
+            "slime": Stats(3, 3),
             "skeleton": Stats(20, 20),
             "ghost": Stats(20, 50),
             "bat": Stats(2, 1),
@@ -487,7 +612,7 @@ class Game:
         }
         # experience for each mob
         self.mobs_max_exp = {
-            "slime": 3, 
+            "slime": 3,
             "skeleton": 10,
             "ghost": 20,
             "bat": 2,
@@ -505,11 +630,12 @@ class Game:
 
     def update(self):
         current_time = pygame.time.get_ticks()
-            
+
         for actor in self.actors():
-            actor.update(current_time)
             if actor in self.mobs:
-                actor.random_move(current_time)
+                if not actor.is_dead():
+                    actor.random_move(current_time)
+            actor.update(current_time)
 
     def draw_player_stats(self):
         """Draw player stats in bottom right corner"""
@@ -524,17 +650,17 @@ class Game:
             f"XP: {self.player2.stats.experience}/{self.player2.stats.experience_to_level}",
             f"ATK/DEF: {self.player2.stats.attack}/{self.player2.stats.defence}"
         ]
-        
+
         # Calculate position (bottom right with padding)
         padding = 10
         line_height = 20
         start_y = self.height - (len(stats) * line_height) - padding
-        
+
         for i, stat in enumerate(stats):
             text = self.font.render(stat, True, (255, 255, 255))
             text_rect = text.get_rect(
-                bottomright=(self.width - padding, 
-                           start_y + (i * line_height) + line_height)
+                bottomright=(self.width - padding,
+                             start_y + (i * line_height) + line_height)
             )
             self.screen.blit(text, text_rect)
 
@@ -542,7 +668,7 @@ class Game:
         self.screen.fill((0, 0, 0))
         self.draw_map(self.screen, self.tmx_data)
         self.draw_actors()
-        
+
         if self.debug:
             self.draw_object_layer_borders(self.screen)
             self.draw_debug_info()
@@ -569,15 +695,15 @@ class Game:
                              y * tmx_data.tileheight + layer.offsety))
 
 
-    def spawn_mob_by_name(self, imageset: str, 
-                          *,
-                          spawn_area: str | None = None, 
-                          min_x: int = 0, max_x: int | None = None,
-                          min_y: int = 0, max_y: int | None = None,
-                          max_population: int = 1,
-                          ):
+    def spawn_mob_by_name(self, imageset: str,
+                                 *,
+                                 spawn_area: str | None = None,
+                                 min_x: int = 0, max_x: int | None = None,
+                                 min_y: int = 0, max_y: int | None = None,
+                                 max_population: int = 1,
+                                 ):
         """Spawn a mob at a random valid position
-        
+
         Args:
             imageset: The name of the mob's imageset
             spawn_area: Optional name of spawn area to constrain to
@@ -593,7 +719,7 @@ class Game:
             if spawn_rect is None:
                 logging.warning(f"Spawn area '{spawn_area}' not found")
                 return
-                
+
             # Convert pixel rect to tile coordinates
             tile_width = self.tmx_data.tilewidth
             tile_height = self.tmx_data.tileheight
@@ -609,31 +735,31 @@ class Game:
                 max_x = self.tmx_data.width - 1
             if max_y is None:
                 max_y = self.tmx_data.height - 1
-                
+
             min_x = max(0, min(min_x, self.tmx_data.width - 1))
             max_x = max(0, min(max_x, self.tmx_data.width - 1))
             min_y = max(0, min(min_y, self.tmx_data.height - 1))
             max_y = max(0, min(max_y, self.tmx_data.height - 1))
-            
+
             if min_x > max_x:
                 min_x, max_x = max_x, min_x
             if min_y > max_y:
                 min_y, max_y = max_y, min_y
-            
+
             max_attempts = 10
             for _ in range(max_attempts):
                 x = random.randint(min_x, max_x)
                 y = random.randint(min_y, max_y)
-                
+
                 if not self._position_has_collision(x, y):
                     mob = Actor(x, y, imageset, self, self.mobs_stats[imageset])
                     self.mobs.append(mob)
                     population += 1
                     break
-                else:
-                    logging.warning(f"Could not find valid spawn position for {imageset} in area "
-                                   f"x:{min_x}-{max_x}, y:{min_y}-{max_y} after {max_attempts} attempts")
-                    return
+            else:
+                logging.warning(f"Could not find valid spawn position for {imageset} in area "
+                                f"x:{min_x}-{max_x}, y:{min_y}-{max_y} after {max_attempts} attempts")
+                return
 
     def _position_has_collision(self, x: int, y: int) -> bool:
         """Check if a tile position has any collisions"""
@@ -644,27 +770,27 @@ class Game:
             self.tmx_data.tilewidth,
             self.tmx_data.tileheight
         )
-        
+
         # Check against all collision objects
         for obj_rect in self.gamedata.collision_objects:
             if temp_rect.colliderect(obj_rect):
                 return True
-        
+
         # Check if position is occupied by any actor
         for actor in self.actors():
             if actor.tile_x == x and actor.tile_y == y:
                 return True
-                
+
         return False
 
     def draw_object_layer_borders(self, surface: pygame.Surface, color=(0, 0, 0), font_size=14):
         """Draw borders and names of all objects in the object layer"""
         if not self.gamedata.objectlayer:
             return
-        
+
         # Load a font for the text rendering
         font = pygame.font.Font(None, font_size)  # None uses default font, 24 is size
-        
+
         center_x = None
         center_y = None
         for obj in self.gamedata.objectlayer:
@@ -680,7 +806,7 @@ class Game:
                 pygame.draw.rect(surface, color, rect, 1)
                 center_x = obj.x + obj.width / 2
                 center_y = obj.y + obj.height / 2
-            
+
             # Render object name if it exists
             if obj.name and center_x is not None and center_y is not None:
                 text = font.render(obj.name, True, color)
@@ -693,10 +819,10 @@ class Game:
         screen = self.screen
         if not self.debug:
             return
-            
+
         # Draw mouse position
         self._draw_mouse_position(screen)
-        
+
         # Draw other debug info (object borders, etc.)
         self.draw_object_layer_borders(screen)
 
@@ -704,21 +830,21 @@ class Game:
         """Draw current mouse position and coordinates"""
         mouse_pos = pygame.mouse.get_pos()
         font = pygame.font.Font(None, 14)
-        
+
         # Create text
         text = font.render(f"{mouse_pos}", True, (255, 255, 255))
-        
-        
+
+
         # Draw to screen
         surface.blit(text, (20, 150))
-        
+
         # Draw crosshair at mouse position
-        pygame.draw.line(surface, (255, 0, 0), 
-                        (mouse_pos[0] - 10, mouse_pos[1]), 
-                        (mouse_pos[0] + 10, mouse_pos[1]), 1)
-        pygame.draw.line(surface, (255, 0, 0), 
-                        (mouse_pos[0], mouse_pos[1] - 10), 
-                        (mouse_pos[0], mouse_pos[1] + 10), 1)
+        pygame.draw.line(surface, (255, 0, 0),
+                         (mouse_pos[0] - 10, mouse_pos[1]),
+                         (mouse_pos[0] + 10, mouse_pos[1]), 1)
+        pygame.draw.line(surface, (255, 0, 0),
+                         (mouse_pos[0], mouse_pos[1] - 10),
+                         (mouse_pos[0], mouse_pos[1] + 10), 1)
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -771,9 +897,14 @@ class Game:
 
 
     def draw_actors(self):
-        for actor in self.actors():
-            # logging.debug(f"Drawing {actor.imageset}")
-            self.screen.blit(actor.image, actor.rect)
+        actors = list(self.actors())
+        live_actors = [actor for actor in actors if not actor.is_dead()]
+        dead_actors = [actor for actor in actors if actor.is_dead()]
+        for actor in dead_actors:
+            actor.draw(self.screen)
+
+        for actor in live_actors:
+            actor.draw(self.screen)
 
     def run(self):
         while self.running:
