@@ -4,11 +4,11 @@ import argparse
 import logging
 from typing import Any, Dict, Iterable, Literal, Optional
 import pygame
-import pygame_gui
 from pytmx import load_pygame
 import pytmx
 
 from llmrpg.gamedata import GameData
+from llmrpg.guimanager import GameGUI
 from llmrpg.effects import BlinkEffect
 from llmrpg.validations import PositionValidator
 from llmrpg.playerstats import Stats
@@ -405,75 +405,8 @@ class Game:
         self.game_surface = pygame.Surface((self.viewport_width, self.viewport_height))
         self.gui_surface = pygame.Surface((self.gui_width, self.viewport_height))
         
-        # Initialize GUI manager with full screen size
-        self.gui_manager = pygame_gui.UIManager((self.viewport_width + self.gui_width, self.viewport_height))
-        
-        # Create GUI panel on left side
-        panel_rect = pygame.Rect(0, 0, self.gui_width, self.viewport_height)
-        self.gui_panel = pygame_gui.elements.UIPanel(
-            relative_rect=panel_rect,
-            manager=self.gui_manager
-        )
-        
-        # Add stats display
-        y_offset = 10
-        x_offset = 10
-        bar_width = self.gui_width - x_offset  # Increased margin by reducing bar width
-        bar_height = 20
-        
-        self.health_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
-            text="HP:",
-            manager=self.gui_manager,
-            container=self.gui_panel
-        )
-
-        y_offset += 25
-        self.health_bar = pygame_gui.elements.UIStatusBar(
-            relative_rect=pygame.Rect(5, y_offset, bar_width, bar_height),
-            manager=self.gui_manager,
-            container=self.gui_panel
-        )
-
-        y_offset += 25
-        self.health_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
-            text="XP:",
-            manager=self.gui_manager,
-            container=self.gui_panel
-        )
-
-
-        # XP bar
-        y_offset += 25
-        self.xp_bar = pygame_gui.elements.UIStatusBar(
-            relative_rect=pygame.Rect(5, y_offset, bar_width, bar_height),
-            manager=self.gui_manager,
-            container=self.gui_panel
-        )
-
-        # Stats labels
-        y_offset += 25
-        self.level_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
-            text="",
-            manager=self.gui_manager,
-            container=self.gui_panel
-        )
-        y_offset += 25
-        self.attack_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
-            text="",
-            manager=self.gui_manager,
-            container=self.gui_panel
-        )
-        y_offset += 25
-        self.defence_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
-            text="",
-            manager=self.gui_manager,
-            container=self.gui_panel
-        )
+        # Initialize GUI system
+        self.gui = GameGUI(self.viewport_width, self.viewport_height, self.gui_width)
         pygame.display.set_caption(f"Rendering {map_path}")
 
         self.clock = pygame.time.Clock()
@@ -540,21 +473,11 @@ class Game:
     def update(self):
         current_time = pygame.time.get_ticks()
         time_delta = self.clock.tick(60)/1000.0
-        self.gui_manager.update(time_delta)
+        self.gui.update(time_delta)
         
         # Update GUI stats
         if hasattr(self, 'player1'):
-            # Update health bar (first priority)
-            health_percent = (self.player1.health / self.player1.stats.max_health) * 100
-            self.health_bar.percent_full = health_percent
-
-            # Update XP bar (second priority)
-            xp_percent = (self.player1.stats.experience / self.player1.stats.experience_to_level) * 100
-            self.xp_bar.percent_full = xp_percent
-
-            self.level_label.set_text(f"Level: {self.player1.stats.level}")
-            self.attack_label.set_text(f"Attack: {self.player1.stats.attack}")
-            self.defence_label.set_text(f"Defence: {self.player1.stats.defence}")
+            self.gui.update_stats(self.player1)
 
         self.camera.update(self.player1.rect, self.width, self.height)
 
@@ -590,8 +513,7 @@ class Game:
         self._draw_notifications(self.game_surface)
         
         # Draw GUI
-        self.gui_manager.draw_ui(self.gui_surface)
-        self._draw_player_stats(self.gui_surface)
+        self.gui.draw(self.gui_surface)
         
         # Blit both surfaces to screen
         self.screen.blit(self.game_surface, (self.gui_width, 0))
@@ -764,7 +686,7 @@ class Game:
 
     def _handle_events(self):
         for event in pygame.event.get():
-            self.gui_manager.process_events(event)
+            self.gui.process_events(event)
             current_time = pygame.time.get_ticks()
             if event.type == pygame.QUIT:
                 logging.debug("Quit event detected")
