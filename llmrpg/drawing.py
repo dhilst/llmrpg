@@ -51,23 +51,24 @@ def draw_player_stats(screen, player1, player2, height, width, font):
         screen.blit(text, text_rect)
 
 
-def draw_map(screen, tmx_data):
+def draw_map(screen, tmx_data, camera):
     # Draw all visible layers in proper order
     for layer in tmx_data.visible_layers:
         if isinstance(layer, pytmx.TiledTileLayer):
             for x, y, gid in layer: # type: ignore
                 tile = tmx_data.get_tile_image_by_gid(gid)
                 if tile:
-                    screen.blit(tile,
-                        (x * tmx_data.tilewidth + layer.offsetx,
-                         y * tmx_data.tileheight + layer.offsety))
+                    dest_x = x * tmx_data.tilewidth + layer.offsetx
+                    dest_y = y * tmx_data.tileheight + layer.offsety
+                    tile_rect = pygame.Rect(dest_x, dest_y, tmx_data.tilewidth, tmx_data.tileheight)
+                    screen.blit(tile, camera.apply(tile_rect))
 
 
-def draw_actors(screen, actors):
+def draw_actors(screen, actors, camera):
     live_actors = [actor for actor in actors if not actor.is_dead()]
     dead_actors = [actor for actor in actors if actor.is_dead()]
     for actor in dead_actors:
-        actor.draw(screen)
+        actor.draw(screen, camera)
 
     for actor in live_actors:
-        actor.draw(screen)
+        actor.draw(screen, camera)

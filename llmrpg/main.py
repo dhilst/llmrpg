@@ -11,6 +11,7 @@ from llmrpg.gamedata import GameData
 from llmrpg.effects import BlinkEffect
 from llmrpg.validations import PositionValidator
 from llmrpg.playerstats import Stats
+from llmrpg.camera import Camera
 from llmrpg import drawing
 
 def parse_args():
@@ -279,7 +280,7 @@ class Actor(pygame.sprite.Sprite):
             self.tile_y = self.target_tile_y
             self.moving = False
 
-    def draw(self, screen):
+    def draw(self, screen: pygame.Surface, camera: Camera):
         """
         Draws the actor on the screen, considering any active effects like blinking.
         """
@@ -291,7 +292,7 @@ class Actor(pygame.sprite.Sprite):
                     break # If any blink effect says don't draw, then don't draw
 
         if should_draw:
-            screen.blit(self.image, self.rect)
+            screen.blit(self.image, camera.apply(self.rect))
 
 class Player(Actor):
     def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
@@ -372,7 +373,11 @@ class Game:
         self.height = self.tmx_data.height * self.tmx_data.tileheight
 
         logging.debug(f"Setting up display: {self.width}x{self.height}")
-        self.screen = pygame.display.set_mode((self.width, self.height))
+        tilew, tileh = self.tmx_data.tilewidth, self.tmx_data.tileheight
+        self.viewport_width = Camera.WIDTH_TILES * tilew
+        self.viewport_height = Camera.HEIGHT_TILES * tileh
+        self.camera = Camera(self.viewport_width, self.viewport_height)
+        self.screen = pygame.display.set_mode((self.viewport_width, self.viewport_height))
         pygame.display.set_caption(f"Rendering {map_path}")
 
         self.clock = pygame.time.Clock()
@@ -439,6 +444,8 @@ class Game:
     def update(self):
         current_time = pygame.time.get_ticks()
 
+        self.camera.update(self.player1.rect, self.width, self.height)
+
         for actor in self.actors():
             if actor in self.mobs and not actor.is_dead():
                 actor.update_behavior(current_time)
@@ -455,6 +462,7 @@ class Game:
             max_pop = self.mobs_max_population[mob_type]
             if current_pop < max_pop and random.random() < 0.001:
                 self._spawn_mob_by_name(mob_type, max_population=1)
+
 
     def draw(self):
         self.screen.fill((0, 0, 0))
@@ -492,8 +500,10 @@ class Game:
             pass
 
     def _draw_map(self):
-        return drawing.draw_map(self.screen, self.tmx_data)
+        return drawing.draw_map(self.screen, self.tmx_data, self.camera)
 
+    def _draw_actors(self):
+        return drawing.draw_actors(self.screen, self.actors(), self.camera)
 
     def _spawn_mob_by_name(self, imageset: str,
                                  *,
@@ -659,8 +669,6 @@ class Game:
                         self.player1 = Player(5, 5, "boy", self, stats=self.player1.stats)
 
 
-    def _draw_actors(self):
-        return drawing.draw_actors(self.screen, self.actors())
 
 def main():
     args = parse_args()
