@@ -380,12 +380,24 @@ class Game:
         self.gamedata = GameData(self.tmx_data)
 
         self.players = []
-        logging.debug("Creating player1 (boy) at initial position (5, 5)")
-        self.players.append(Player(5, 5, "boy", self, Stats(attack=100, defence=15)))
-        self.players.append(Player(7, 5, "girl", self, Stats(attack=100, defence=5)))
+        # Get player spawn area from map data
+        player_spawn = self.gamedata.get_player_spawn()
+        if player_spawn:
+            # Convert pixel coordinates to tile coordinates
+            tile_width = self.tmx_data.tilewidth
+            tile_height = self.tmx_data.tileheight
+            spawn_x = player_spawn.x // tile_width
+            spawn_y = player_spawn.y // tile_height
+        else:
+            logging.warning("No player spawn area found, using default position")
+            spawn_x, spawn_y = 5, 5
+
+        logging.debug(f"Creating player1 (boy) at spawn position ({spawn_x}, {spawn_y})")
+        self.players.append(Player(spawn_x, spawn_y, "boy", self, Stats(attack=100, defence=15)))
+        self.players.append(Player(spawn_x + 2, spawn_y, "girl", self, Stats(attack=100, defence=5)))
         self.player1 = self.players[0]
         self.player2 = self.players[1]
-        logging.debug("Creating player2 (girl) at initial position (7, 5)")
+        logging.debug(f"Creating player2 (girl) at spawn position ({spawn_x + 2}, {spawn_y})")
 
         self.font = pygame.font.SysFont(None, 24)
 
