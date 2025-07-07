@@ -376,6 +376,13 @@ class Game:
             if mob.is_dead() and current_time - mob.death_time >= 5000:
                 self.mobs.remove(mob)
 
+        # Spawn new mobs if population is below max and random chance succeeds
+        for mob_type in self.mobs_max_population:
+            current_pop = sum(1 for m in self.mobs if m.imageset == mob_type and not m.is_dead())
+            max_pop = self.mobs_max_population[mob_type]
+            if current_pop < max_pop and random.random() < 0.001:
+                self._spawn_mob_by_name(mob_type, max_population=1)
+
     def draw(self):
         self.screen.fill((0, 0, 0))
         self._draw_map()
