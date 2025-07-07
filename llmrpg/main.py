@@ -25,6 +25,8 @@ class Actor(pygame.sprite.Sprite):
         super().__init__()
         self.kind = kind
         self.last_move_time = 0  # Track when mob last moved
+        self.last_attack_time = 0
+        self.attack_cooldown = 3000
         self.move_cooldown = 1000  # 3 seconds in milliseconds
 
         self.game = game
@@ -96,6 +98,10 @@ class Actor(pygame.sprite.Sprite):
 
     def attack_target(self, target: "Actor", current_time: int) -> bool:
         """Attack another actor and return True if target was killed"""
+        # Check attack cooldown
+        if current_time - self.last_attack_time < self.attack_cooldown:  # 5 second cooldown
+            return False
+
         # Check if target is currently invincible due to a BlinkEffect
         if target.kind == self.kind:
             return False
@@ -106,12 +112,60 @@ class Actor(pygame.sprite.Sprite):
 
         damage = self.calculate_damage(target)
         target.take_damage(damage, current_time)
+        self.last_attack_time = current_time
 
         if target.is_dead():
             self.stats.add_experience(self.game.mobs_max_exp[target.imageset] * self.game.exp_modifier)
 
-        # Return whether target was killed
         return target.is_dead()
+
+    def update_behavior(self, current_time: int):
+        """Update mob behavior based on player proximity"""
+        # Check for players in 3x3 attack range
+        for player in self.game.players:
+            if (abs(self.tile_x - player.tile_x) <= 1 and 
+                abs(self.tile_y - player.tile_y) <= 1 and 
+                not player.is_dead()):
+                self.attack_target(player, current_time)
+                return
+
+        # Check for players in 7x7 chase range
+        closest_player = None
+        min_distance = float('inf')
+        
+        for player in self.game.players:
+            if player.is_dead():
+                continue
+                
+            dx = abs(self.tile_x - player.tile_x)
+            dy = abs(self.tile_y - player.tile_y)
+            if dx <= 3 and dy <= 3:  # 7x7 area (3 tiles in each direction)
+                distance = dx + dy
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_player = player
+
+        # Move towards closest player in range
+        if closest_player:
+            if current_time - self.last_move_time < self.move_cooldown:
+                return
+
+            dx = closest_player.tile_x - self.tile_x
+            dy = closest_player.tile_y - self.tile_y
+            
+            # Prefer dominant direction
+            if abs(dx) > abs(dy):
+                move_x = self.tile_x + (1 if dx > 0 else -1)
+                move_y = self.tile_y
+            else:
+                move_x = self.tile_x
+                move_y = self.tile_y + (1 if dy > 0 else -1)
+
+            self.move_to(move_x, move_y, current_time)
+            self.last_move_time = current_time
+        else:
+            # No players in range - random movement
+            self.random_move(current_time)
 
     def take_damage(self, amount: int, current_time: int):
         """Handle taking damage"""
@@ -294,6 +348,8 @@ class Player(Actor):
 class Mob(Actor):
     def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
         super().__init__(x, y, imageset, game, stats, kind="mob")
+        self.last_attack_time = 0  # Track when mob last attacked
+        self.move_cooldown = 1000  # Milliseconds between moves
 
 class Game:
     def __init__(self, map_path: str, debug: bool = False):
@@ -374,9 +430,8 @@ class Game:
         current_time = pygame.time.get_ticks()
 
         for actor in self.actors():
-            if actor in self.mobs:
-                if not actor.is_dead():
-                    actor.random_move(current_time)
+            if actor in self.mobs and not actor.is_dead():
+                actor.update_behavior(current_time)
             actor.update(current_time)
 
         # Remove mobs that have been dead for 5 seconds
