@@ -415,10 +415,62 @@ class Game:
             manager=self.gui_manager
         )
         
-        # Add stats labels
-        self.player1_stats_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(10, 10, self.gui_width - 20, 20),
-            text="Player Stats",
+        # Add stats display
+        y_offset = 10
+        x_offset = 10
+        bar_width = self.gui_width - x_offset  # Increased margin by reducing bar width
+        bar_height = 20
+        
+        self.health_label = pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
+            text="HP:",
+            manager=self.gui_manager,
+            container=self.gui_panel
+        )
+
+        y_offset += 25
+        self.health_bar = pygame_gui.elements.UIStatusBar(
+            relative_rect=pygame.Rect(5, y_offset, bar_width, bar_height),
+            manager=self.gui_manager,
+            container=self.gui_panel
+        )
+
+        y_offset += 25
+        self.health_label = pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
+            text="XP:",
+            manager=self.gui_manager,
+            container=self.gui_panel
+        )
+
+
+        # XP bar
+        y_offset += 25
+        self.xp_bar = pygame_gui.elements.UIStatusBar(
+            relative_rect=pygame.Rect(5, y_offset, bar_width, bar_height),
+            manager=self.gui_manager,
+            container=self.gui_panel
+        )
+
+        # Stats labels
+        y_offset += 25
+        self.level_label = pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
+            text="",
+            manager=self.gui_manager,
+            container=self.gui_panel
+        )
+        y_offset += 25
+        self.attack_label = pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
+            text="",
+            manager=self.gui_manager,
+            container=self.gui_panel
+        )
+        y_offset += 25
+        self.defence_label = pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(10, y_offset, self.gui_width-20, 20),
+            text="",
             manager=self.gui_manager,
             container=self.gui_panel
         )
@@ -492,13 +544,17 @@ class Game:
         
         # Update GUI stats
         if hasattr(self, 'player1'):
-            self.player1_stats_label.set_text(
-                f"HP: {self.player1.health}/{self.player1.stats.max_health}\n"
-                f"LV: {self.player1.stats.level}\n"
-                f"XP: {self.player1.stats.experience}/{self.player1.stats.experience_to_level}\n"
-                f"ATK: {self.player1.stats.attack}\n"
-                f"DEF: {self.player1.stats.defence}"
-            )
+            # Update health bar (first priority)
+            health_percent = (self.player1.health / self.player1.stats.max_health) * 100
+            self.health_bar.percent_full = health_percent
+
+            # Update XP bar (second priority)
+            xp_percent = (self.player1.stats.experience / self.player1.stats.experience_to_level) * 100
+            self.xp_bar.percent_full = xp_percent
+
+            self.level_label.set_text(f"Level: {self.player1.stats.level}")
+            self.attack_label.set_text(f"Attack: {self.player1.stats.attack}")
+            self.defence_label.set_text(f"Defence: {self.player1.stats.defence}")
 
         self.camera.update(self.player1.rect, self.width, self.height)
 
