@@ -76,6 +76,7 @@ class Actor(pygame.sprite.Sprite):
 
         self.health = 100
         self.death_time = None  # Track when actor died
+        self.damage_texts = []  # List of tuples: (text, expire_time, y_offset)
         # --- Integration of BlinkEffect ---
         self.effects = [] # List to hold various effects
 
@@ -145,6 +146,10 @@ class Actor(pygame.sprite.Sprite):
             self.death_time = current_time
             return
 
+        # Add damage text that appears for 1.5 seconds
+        damage_text = f"{amount}"
+        self.damage_texts.append((damage_text, current_time + 1500, 0))
+        
         invincibility_blink = BlinkEffect(duration_ms=1000, blink_interval_ms=100)
         self.add_effect(invincibility_blink)
 
@@ -232,6 +237,10 @@ class Actor(pygame.sprite.Sprite):
 
     def update(self, current_time: int):
         """Update actor position, animation, and effects."""
+        # Remove expired damage texts
+        self.damage_texts = [(text, expire, y) for (text, expire, y) in self.damage_texts 
+                            if expire > current_time]
+        
         # Update all active effects
         # Iterate over a copy of the list to safely remove effects during iteration
         for effect in list(self.effects):
@@ -293,6 +302,18 @@ class Actor(pygame.sprite.Sprite):
 
         if should_draw:
             screen.blit(self.image, camera.apply(self.rect))
+            
+            # Draw damage texts with offset
+            damage_font = pygame.font.Font(None, 14)
+            for i, (text, _, y_offset) in enumerate(self.damage_texts):
+                text_surface = damage_font.render(text, True, (255, 0, 0))
+                text_pos = camera.apply(pygame.Rect(
+                    self.rect.x + (self.rect.width - text_surface.get_width()) // 2,
+                    self.rect.y - 20 - y_offset,
+                    text_surface.get_width(),
+                    text_surface.get_height()
+                )).topleft
+                screen.blit(text_surface, text_pos)
 
 class Player(Actor):
     def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
