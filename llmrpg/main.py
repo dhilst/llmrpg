@@ -395,10 +395,7 @@ class Game:
 
         logging.debug(f"Creating player1 (boy) at spawn position ({spawn_x}, {spawn_y})")
         self.players.append(Player(spawn_x, spawn_y, "boy", self, Stats(attack=100, defence=15)))
-        self.players.append(Player(spawn_x + 2, spawn_y, "girl", self, Stats(attack=100, defence=5)))
         self.player1 = self.players[0]
-        self.player2 = self.players[1]
-        logging.debug(f"Creating player2 (girl) at spawn position ({spawn_x + 2}, {spawn_y})")
 
         self.font = pygame.font.SysFont(None, 24)
 
@@ -491,8 +488,9 @@ class Game:
     def _draw_player_stats(self):
         """Draw player stats in bottom right corner"""
         if self.debug:
-            drawing.draw_player_stats(self.screen, self.player1, self.player2,
-                                      self.height, self.width, self.font)
+            # TODO
+            pass
+
     def _draw_map(self):
         return drawing.draw_map(self.screen, self.tmx_data)
 
@@ -660,23 +658,6 @@ class Game:
                         logging.debug("Resetting player1 position")
                         self.player1 = Player(5, 5, "boy", self, stats=self.player1.stats)
 
-                # Control player2 (skeleton) with WASD only if not moving
-                if not self.player2.moving:
-                    if event.key == pygame.K_a:
-                        self.player2.move_to(self.player2.tile_x - 1, self.player2.tile_y,
-                                             current_time)
-                    elif event.key == pygame.K_d:
-                        self.player2.move_to(self.player2.tile_x + 1, self.player2.tile_y,
-                                             current_time)
-                    elif event.key == pygame.K_w:
-                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y - 1,
-                                             current_time)
-                    elif event.key == pygame.K_s:
-                        self.player2.move_to(self.player2.tile_x, self.player2.tile_y + 1,
-                                             current_time)
-                    elif event.key == pygame.K_t:  # Reset player2 position (using 't' key)
-                        logging.debug("Resetting player2 position")
-                        self.player2 = Player(7, 5, "skeleton", self, stats=self.player2.stats)
 
     def _draw_actors(self):
         return drawing.draw_actors(self.screen, self.actors())
