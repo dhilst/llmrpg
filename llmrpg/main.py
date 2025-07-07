@@ -489,8 +489,9 @@ class Game:
 
     def _draw_player_stats(self):
         """Draw player stats in bottom right corner"""
-        drawing.draw_player_stats(self.screen, self.player1, self.player2,
-                                  self.height, self.width, self.font)
+        if self.debug:
+            drawing.draw_player_stats(self.screen, self.player1, self.player2,
+                                      self.height, self.width, self.font)
     def _draw_map(self):
         return drawing.draw_map(self.screen, self.tmx_data)
 
