@@ -23,7 +23,6 @@ def parse_args():
 class Actor(pygame.sprite.Sprite):
     def __init__(self, x, y, imageset: str, game: "Game", stats: Stats, kind: Literal["player", "mob"]):
         super().__init__()
-
         self.kind = kind
         self.last_move_time = 0  # Track when mob last moved
         self.move_cooldown = 1000  # 3 seconds in milliseconds
@@ -76,6 +75,8 @@ class Actor(pygame.sprite.Sprite):
         self.death_time = None  # Track when actor died
         # --- Integration of BlinkEffect ---
         self.effects = [] # List to hold various effects
+
+
 
     def is_dead(self) -> bool:
         return self.health <= 0
@@ -286,6 +287,13 @@ class Actor(pygame.sprite.Sprite):
         if should_draw:
             screen.blit(self.image, self.rect)
 
+class Player(Actor):
+    def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
+        super().__init__(x, y, imageset, game, stats, kind="player")
+
+class Mob(Actor):
+    def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
+        super().__init__(x, y, imageset, game, stats, kind="mob")
 
 class Game:
     def __init__(self, map_path: str, debug: bool = False):
@@ -317,8 +325,8 @@ class Game:
 
         self.players = []
         logging.debug("Creating player1 (boy) at initial position (5, 5)")
-        self.players.append(Actor(5, 5, "boy", self, Stats(attack=100, defence=15), "player"))
-        self.players.append(Actor(7, 5, "girl", self, Stats(attack=100, defence=5), "player"))
+        self.players.append(Player(5, 5, "boy", self, Stats(attack=100, defence=15)))
+        self.players.append(Player(7, 5, "girl", self, Stats(attack=100, defence=5)))
         self.player1 = self.players[0]
         self.player2 = self.players[1]
         logging.debug("Creating player2 (girl) at initial position (7, 5)")
@@ -477,7 +485,7 @@ class Game:
                 y = random.randint(min_y, max_y)
 
                 if not self._position_has_collision(x, y):
-                    mob = Actor(x, y, imageset, self, self.mobs_stats[imageset], "mob")
+                    mob = Mob(x, y, imageset, self, self.mobs_stats[imageset])
                     self.mobs.append(mob)
                     population += 1
                     break
@@ -581,7 +589,7 @@ class Game:
                         self.debug = not self.debug
                     elif event.key == pygame.K_r:  # Reset player1 position
                         logging.debug("Resetting player1 position")
-                        self.player1 = Actor(5, 5, "boy", self, stats=self.player1.stats, kind="player")
+                        self.player1 = Player(5, 5, "boy", self, stats=self.player1.stats)
 
                 # Control player2 (skeleton) with WASD only if not moving
                 if not self.player2.moving:
@@ -599,7 +607,7 @@ class Game:
                                              current_time)
                     elif event.key == pygame.K_t:  # Reset player2 position (using 't' key)
                         logging.debug("Resetting player2 position")
-                        self.player2 = Actor(7, 5, "skeleton", self, stats=self.player2.stats, kind="player")
+                        self.player2 = Player(7, 5, "skeleton", self, stats=self.player2.stats)
 
     def _draw_actors(self):
         return drawing.draw_actors(self.screen, self.actors())
