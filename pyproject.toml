@@ -10,6 +10,7 @@ license = { file = "LICENSE" }
 dependencies = [
     "lxml>=6.0.0",
     "pygame >=2.1.2",
+    "pygame-gui>=0.6.14",
     "pytmx >=1.4.0",
 ]
 

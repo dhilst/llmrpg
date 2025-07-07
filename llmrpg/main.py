@@ -4,6 +4,7 @@ import argparse
 import logging
 from typing import Any, Dict, Iterable, Literal, Optional
 import pygame
+import pygame_gui
 from pytmx import load_pygame
 import pytmx
 
@@ -398,7 +399,29 @@ class Game:
         self.viewport_width = Camera.WIDTH_TILES * tilew
         self.viewport_height = Camera.HEIGHT_TILES * tileh
         self.camera = Camera(self.viewport_width, self.viewport_height)
-        self.screen = pygame.display.set_mode((self.viewport_width, self.viewport_height))
+        # Create separate surfaces for game and GUI
+        self.gui_width = 200
+        self.screen = pygame.display.set_mode((self.viewport_width + self.gui_width, self.viewport_height))
+        self.game_surface = pygame.Surface((self.viewport_width, self.viewport_height))
+        self.gui_surface = pygame.Surface((self.gui_width, self.viewport_height))
+        
+        # Initialize GUI manager with full screen size
+        self.gui_manager = pygame_gui.UIManager((self.viewport_width + self.gui_width, self.viewport_height))
+        
+        # Create GUI panel on left side
+        panel_rect = pygame.Rect(0, 0, self.gui_width, self.viewport_height)
+        self.gui_panel = pygame_gui.elements.UIPanel(
+            relative_rect=panel_rect,
+            manager=self.gui_manager
+        )
+        
+        # Add stats labels
+        self.player1_stats_label = pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(10, 10, self.gui_width - 20, 20),
+            text="Player Stats",
+            manager=self.gui_manager,
+            container=self.gui_panel
+        )
         pygame.display.set_caption(f"Rendering {map_path}")
 
         self.clock = pygame.time.Clock()
@@ -464,6 +487,18 @@ class Game:
 
     def update(self):
         current_time = pygame.time.get_ticks()
+        time_delta = self.clock.tick(60)/1000.0
+        self.gui_manager.update(time_delta)
+        
+        # Update GUI stats
+        if hasattr(self, 'player1'):
+            self.player1_stats_label.set_text(
+                f"HP: {self.player1.health}/{self.player1.stats.max_health}\n"
+                f"LV: {self.player1.stats.level}\n"
+                f"XP: {self.player1.stats.experience}/{self.player1.stats.experience_to_level}\n"
+                f"ATK: {self.player1.stats.attack}\n"
+                f"DEF: {self.player1.stats.defence}"
+            )
 
         self.camera.update(self.player1.rect, self.width, self.height)
 
@@ -486,13 +521,25 @@ class Game:
 
 
     def draw(self):
+        # Clear all surfaces
         self.screen.fill((0, 0, 0))
-        self._draw_map()
-        self._draw_actors()
-        self._draw_object_layer_borders()
-        self._draw_debug_info()
-        self._draw_notifications()
-        self._draw_player_stats()
+        self.game_surface.fill((0, 0, 0))
+        self.gui_surface.fill((0, 0, 0))
+        
+        # Draw game elements to game surface
+        self._draw_map(self.game_surface)
+        self._draw_actors(self.game_surface)
+        self._draw_object_layer_borders(self.game_surface)
+        self._draw_debug_info(self.game_surface)
+        self._draw_notifications(self.game_surface)
+        
+        # Draw GUI
+        self.gui_manager.draw_ui(self.gui_surface)
+        self._draw_player_stats(self.gui_surface)
+        
+        # Blit both surfaces to screen
+        self.screen.blit(self.game_surface, (self.gui_width, 0))
+        self.screen.blit(self.gui_surface, (0, 0))
         pygame.display.flip()
 
     def actors(self) -> list[Actor]:
@@ -507,24 +554,22 @@ class Game:
 
         pygame.quit()
 
-    def _draw_notifications(self):
+    def _draw_notifications(self, surface):
         # Draw level up notification if needed
         for player in self.players:
             if player.stats.experience >= player.stats.experience_to_level:
                 text = self.font.render(f"{player.imageset} leveled up!", True, (255, 255, 0))
-                self.screen.blit(text, (self.width // 2 - 100, 50))
+                surface.blit(text, (self.width // 2 - 100, 50))
 
-    def _draw_player_stats(self):
-        """Draw player stats in bottom right corner"""
-        if self.debug:
-            # TODO
-            pass
+    def _draw_player_stats(self, surface):
+        """Draw player stats"""
+        pass  # Stats are now handled by pygame_gui
 
-    def _draw_map(self):
-        return drawing.draw_map(self.screen, self.tmx_data, self.camera)
+    def _draw_map(self, surface):
+        return drawing.draw_map(surface, self.tmx_data, self.camera)
 
-    def _draw_actors(self):
-        return drawing.draw_actors(self.screen, self.actors(), self.camera)
+    def _draw_actors(self, surface):
+        return drawing.draw_actors(surface, self.actors(), self.camera)
 
     def _spawn_mob_by_name(self, imageset: str,
                                  *,
@@ -622,7 +667,7 @@ class Game:
         if not self.gamedata.objectlayer:
             return
 
-        surface = self.screen
+        surface = self.game_surface
         # Load a font for the text rendering
         font = pygame.font.Font(None, font_size)  # None uses default font, 24 is size
 
@@ -649,20 +694,21 @@ class Game:
                 surface.blit(text, text_rect)
 
 
-    def _draw_debug_info(self):
+    def _draw_debug_info(self, surface):
         """Draw all debug information including mouse position"""
         if not self.debug:
             return
 
-        self._draw_mouse_position()
-        self._draw_object_layer_borders()
+        self._draw_mouse_position(surface)
+        self._draw_object_layer_borders(surface)
 
-    def _draw_mouse_position(self):
+    def _draw_mouse_position(self, surface):
         """Draw current mouse position and coordinates"""
-        return drawing.draw_mouse_position(self.screen)
+        return drawing.draw_mouse_position(surface)
 
     def _handle_events(self):
         for event in pygame.event.get():
+            self.gui_manager.process_events(event)
             current_time = pygame.time.get_ticks()
             if event.type == pygame.QUIT:
                 logging.debug("Quit event detected")
