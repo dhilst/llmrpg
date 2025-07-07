@@ -44,9 +44,6 @@ class Actor(pygame.sprite.Sprite):
         self.x = x * self.tile_width
         self.y = y * self.tile_height
 
-        # Load character spritesheet and setup animation
-        logging.debug(f"Loading spritesheet from: sprites/characters.png")
-
         self.frames = self.gamedata.characters.frames(self.imageset)  # dict: direction -> frames list
         self.frames["dead"] = self.gamedata.dead_characters.tiles(self.imageset)
         self.direction = "down"  # default direction
@@ -76,6 +73,7 @@ class Actor(pygame.sprite.Sprite):
         self.speed = 5  # pixels per frame
 
         self.health = 100
+        self.death_time = None  # Track when actor died
         # --- Integration of BlinkEffect ---
         self.effects = [] # List to hold various effects
 
@@ -136,6 +134,7 @@ class Actor(pygame.sprite.Sprite):
         if self.is_dead():
             self.current_frame = 0
             self.direction = "dead"
+            self.death_time = current_time
             return
 
         invincibility_blink = BlinkEffect(duration_ms=1000, blink_interval_ms=100)
@@ -233,6 +232,13 @@ class Actor(pygame.sprite.Sprite):
             effect.update(1000/60) 
             if not effect.is_effect_active():
                 self.effects.remove(effect)
+
+        # If dead, don't update animation or movement
+        if self.is_dead():
+            # Freeze animation on death frame
+            if self.direction in self.frames and self.frames[self.direction]:
+                self.image = self.frames[self.direction][0]
+            return
 
         # Update animation
         self.animation_time += 1000/60  # Assuming 60 FPS
@@ -365,6 +371,11 @@ class Game:
                     actor.random_move(current_time)
             actor.update(current_time)
 
+        # Remove mobs that have been dead for 5 seconds
+        for mob in list(self.mobs):
+            if mob.is_dead() and current_time - mob.death_time >= 5000:
+                self.mobs.remove(mob)
+
     def draw(self):
         self.screen.fill((0, 0, 0))
         self._draw_map()
@@ -375,8 +386,8 @@ class Game:
         self._draw_player_stats()
         pygame.display.flip()
 
-    def actors(self) -> Iterable[Actor]:
-        return chain(self.players, self.mobs)
+    def actors(self) -> list[Actor]:
+        return list(chain(self.players, self.mobs))
 
     def run(self):
         while self.running:
