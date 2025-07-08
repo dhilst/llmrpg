@@ -13,6 +13,9 @@ from llmrpg.effects import BlinkEffect
 from llmrpg.validations import PositionValidator
 from llmrpg.playerstats import Stats
 from llmrpg.camera import Camera
+from llmrpg.controller import PygameController
+from llmrpg.direction import Direction
+from llmrpg.action import Action
 from llmrpg import drawing
 
 def parse_args():
@@ -210,6 +213,30 @@ class Actor(pygame.sprite.Sprite):
         self.target_tile_x = new_x
         self.target_tile_y = new_y
         return True
+
+    def act(self, action: Action, current_time: int) -> bool:
+        if action == Action.MOVE_LEFT:
+            return self.move(Direction.LEFT, current_time)
+        elif action == Action.MOVE_RIGHT:
+            return self.move(Direction.RIGHT, current_time)
+        elif action == Action.MOVE_UP:
+            return self.move(Direction.UP, current_time)
+        elif action == Action.MOVE_DOWN:
+            return self.move(Direction.DOWN, current_time)
+        else:
+            return False
+
+    def move(self, direction: Direction, current_time: int) -> bool:
+        if direction == Direction.LEFT:
+            return self.move_to(self.tile_x - 1, self.tile_y, current_time)
+        elif direction == Direction.RIGHT:
+            return self.move_to(self.tile_x + 1, self.tile_y, current_time)
+        elif direction == Direction.UP:
+            return self.move_to(self.tile_x, self.tile_y - 1, current_time)
+        elif direction == Direction.DOWN:
+            return self.move_to(self.tile_x, self.tile_y + 1, current_time)
+        else:
+            raise ValueError(f"Invalid direction {direction}")
 
     def _check_collision(self, new_x: int, new_y: int, current_time: int) -> bool:
         """Check collisions with both tiles, objects, and other actors"""
@@ -470,6 +497,7 @@ class Game:
         logging.debug(f"Creating player1 (boy) at spawn position ({spawn_x}, {spawn_y})")
         self.players.append(Player(spawn_x, spawn_y, "boy", self, Stats(attack=100, defence=15)))
         self.player1 = self.players[0]
+        self.controller1 = PygameController(self.player1)
 
         self.font = pygame.font.SysFont(None, 24)
 
@@ -572,6 +600,7 @@ class Game:
             self.clock.tick(60)
 
         pygame.quit()
+        
 
     def _draw_notifications(self, surface):
         # Draw level up notification if needed
@@ -727,6 +756,7 @@ class Game:
 
     def _handle_events(self):
         for event in pygame.event.get():
+            logging.debug(f"pygame event {event}")
             self.gui.process_events(event)
             current_time = pygame.time.get_ticks()
             if event.type == pygame.QUIT:
@@ -735,32 +765,10 @@ class Game:
 
             if event.type == pygame.KEYDOWN:
                 # Control player1 (boy) with arrow keys only if not moving
-                if not self.player1.moving:
-                    if event.key == pygame.K_LEFT:
-                        self.player1.move_to(self.player1.tile_x - 1, self.player1.tile_y,
-                                             current_time)
-                        self.player1.target = None  # Reset target when moving
-                    elif event.key == pygame.K_RIGHT:
-                        self.player1.move_to(self.player1.tile_x + 1, self.player1.tile_y,
-                                             current_time)
-                        self.player1.target = None
-                    elif event.key == pygame.K_UP:
-                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y - 1,
-                                             current_time)
-                        self.player1.target = None
-                    elif event.key == pygame.K_DOWN:
-                        self.player1.move_to(self.player1.tile_x, self.player1.tile_y + 1,
-                                             current_time)
-                        self.player1.target = None
-                    elif event.key == pygame.K_SPACE:
-                        # Player can manually target without moving
-                        pass
-                    elif event.key == pygame.K_h:
-                        self.debug = not self.debug
-                    elif event.key == pygame.K_r:  # Reset player1 position
-                        logging.debug("Resetting player1 position")
-                        self.player1 = Player(5, 5, "boy", self, stats=self.player1.stats)
-
+                if self.controller1.handle_event(event, current_time):
+                    pass
+                elif event.key == pygame.K_h:
+                    self.debug = not self.debug
 
 
 def main():
