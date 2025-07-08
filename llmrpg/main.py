@@ -319,6 +319,41 @@ class Actor(pygame.sprite.Sprite):
 class Player(Actor):
     def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
         super().__init__(x, y, imageset, game, stats, kind="player")
+        self.target = None
+
+    def update(self, current_time: int):
+        """Update actor position, animation, and effects."""
+        # Remove expired damage texts
+        self.damage_texts = [(text, expire, y) for (text, expire, y) in self.damage_texts 
+                            if expire > current_time]
+        
+        # If we have a target, try to attack it
+        if self.target:
+            if self.target.is_dead():
+                self.target = None
+            elif (abs(self.tile_x - self.target.tile_x) <= 1 and 
+                  abs(self.tile_y - self.target.tile_y) <= 1):
+                self.attack_target(self.target, current_time)
+            else:
+                # Target moved out of range
+                self.target = None
+        
+        # If no target, look for one
+        if not self.target:
+            self.target = self._find_target_in_range()
+            if self.target:
+                self.attack_target(self.target, current_time)
+
+        return super().update(current_time)
+
+    def _find_target_in_range(self) -> Optional["Actor"]:
+        """Find a mob within 3x3 attack range"""
+        for mob in self.game.mobs:
+            if (not mob.is_dead() and 
+                abs(self.tile_x - mob.tile_x) <= 1 and 
+                abs(self.tile_y - mob.tile_y) <= 1):
+                return mob
+        return None
 
 class Mob(Actor):
     def __init__(self, x, y, imageset: str, game: "Game", stats: Stats):
@@ -698,15 +733,22 @@ class Game:
                     if event.key == pygame.K_LEFT:
                         self.player1.move_to(self.player1.tile_x - 1, self.player1.tile_y,
                                              current_time)
+                        self.player1.target = None  # Reset target when moving
                     elif event.key == pygame.K_RIGHT:
                         self.player1.move_to(self.player1.tile_x + 1, self.player1.tile_y,
                                              current_time)
+                        self.player1.target = None
                     elif event.key == pygame.K_UP:
                         self.player1.move_to(self.player1.tile_x, self.player1.tile_y - 1,
                                              current_time)
+                        self.player1.target = None
                     elif event.key == pygame.K_DOWN:
                         self.player1.move_to(self.player1.tile_x, self.player1.tile_y + 1,
                                              current_time)
+                        self.player1.target = None
+                    elif event.key == pygame.K_SPACE:
+                        # Player can manually target without moving
+                        pass
                     elif event.key == pygame.K_h:
                         self.debug = not self.debug
                     elif event.key == pygame.K_r:  # Reset player1 position
