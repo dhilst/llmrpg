@@ -51,20 +51,20 @@ class Actor(pygame.sprite.Sprite):
 
         self.frames = self.gamedata.characters.frames(self.imageset)  # dict: direction -> frames list
         self.frames["dead"] = self.gamedata.dead_characters.tiles(self.imageset)
-        self.direction = "down"  # default direction
+        self.framekey = "down"  # default direction
 
         # fallback in case no animation frames for direction
-        if self.direction not in self.frames:
+        if self.framekey not in self.frames:
             # Just pick any available direction or empty list
-            self.direction = next(iter(self.frames)) if self.frames else None
+            self.framekey = next(iter(self.frames)) if self.frames else None
 
         self.current_frame = 0
         self.animation_time = 0
         self.animation_speed = 160  # ms per frame
 
         # Set initial image
-        if self.direction and self.frames.get(self.direction):
-            self.image = self.frames[self.direction][self.current_frame]
+        if self.framekey and self.frames.get(self.framekey):
+            self.image = self.frames[self.framekey][self.current_frame]
         else:
             self.image = pygame.Surface((self.tile_width, self.tile_height), pygame.SRCALPHA)
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
@@ -145,7 +145,7 @@ class Actor(pygame.sprite.Sprite):
 
         if self.is_dead():
             self.current_frame = 0
-            self.direction = "dead"
+            self.framekey = "dead"
             self.death_time = current_time
             return
 
@@ -192,13 +192,13 @@ class Actor(pygame.sprite.Sprite):
         dy = new_y - self.tile_y
 
         if dx < 0:
-            self.direction = "left"
+            self.framekey = "left"
         elif dx > 0:
-            self.direction = "right"
+            self.framekey = "right"
         elif dy < 0:
-            self.direction = "up"
+            self.framekey = "up"
         elif dy > 0:
-            self.direction = "down"
+            self.framekey = "down"
 
         # Check collision before allowing movement
         if self._check_collision(new_x, new_y, current_time):
@@ -256,15 +256,15 @@ class Actor(pygame.sprite.Sprite):
         # If dead, don't update animation or movement
         if self.is_dead():
             # Freeze animation on death frame
-            if self.direction in self.frames and self.frames[self.direction]:
-                self.image = self.frames[self.direction][0]
+            if self.framekey in self.frames and self.frames[self.framekey]:
+                self.image = self.frames[self.framekey][0]
             return
 
         # Update animation
         self.animation_time += 1000/60  # Assuming 60 FPS
         if self.animation_time >= self.animation_speed:
-            if self.direction and self.direction in self.frames:
-                frames_list = self.frames[self.direction]
+            if self.framekey and self.framekey in self.frames:
+                frames_list = self.frames[self.framekey]
                 self.current_frame = (self.current_frame + 1) % len(frames_list)
                 self.image = frames_list[self.current_frame]
             self.animation_time = 0
