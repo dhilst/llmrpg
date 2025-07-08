@@ -1,8 +1,8 @@
 import pygame
 
 class Camera:
-    WIDTH_TILES = 16
-    HEIGHT_TILES = 16
+    WIDTH_TILES = 12
+    HEIGHT_TILES = 12
 
     def __init__(self, width_px, height_px):
         self.rect = pygame.Rect(0, 0, width_px, height_px)

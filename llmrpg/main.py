@@ -20,6 +20,8 @@ def parse_args():
     parser.add_argument('--load-map', required=True, help='Path to the .tmx Tiled map file')
     parser.add_argument('--log', choices=['debug', 'info', 'warning', 'error'],
                         default='info', help='Set logging level (default: info)')
+    parser.add_argument('--scale', type=int, default=2,
+                        help='Set logging level (default: info)')
     return parser.parse_args()
 
 class Actor(pygame.sprite.Sprite):
@@ -411,7 +413,7 @@ class Mob(Actor):
 
 
 class Game:
-    def __init__(self, map_path: str, debug: bool = False):
+    def __init__(self, map_path: str, debug: bool = False, scale = 2):
         self.debug = debug
         self.mobs = []
 
@@ -437,7 +439,9 @@ class Game:
         # Create separate surfaces for game and GUI
         self.gui_width = 200
         # Game surface is scaled 2x while GUI remains normal size
-        self.screen = pygame.display.set_mode((self.viewport_width*2 + self.gui_width, self.viewport_height*2))
+
+        self.scale = scale
+        self.screen = pygame.display.set_mode((self.viewport_width*self.scale + self.gui_width, self.viewport_height*self.scale))
         self.game_surface = pygame.Surface((self.viewport_width, self.viewport_height))
         self.gui_surface = pygame.Surface((self.gui_width, self.viewport_height))
         
@@ -551,10 +555,10 @@ class Game:
         # Draw GUI
         self.gui.draw(self.gui_surface)
         
-        # Blit both surfaces to screen with 2x scaling for game surface
-        scaled_game = pygame.transform.scale2x(self.game_surface)
+        # Blit both surfaces to screen (only scale game surface)
+        scaled_game = pygame.transform.scale_by(self.game_surface, self.scale)
         self.screen.blit(scaled_game, (self.gui_width, 0))
-        self.screen.blit(pygame.transform.scale2x(self.gui_surface), (0, 0))
+        self.screen.blit(self.gui_surface, (0, 0))  # GUI remains unscaled
         pygame.display.flip()
 
     def actors(self) -> list[Actor]:
@@ -764,7 +768,7 @@ def main():
     logging.basicConfig(level=args.log.upper(),
                         format='%(asctime)s - %(levelname)s - %(message)s')
 
-    game = Game(args.load_map)
+    game = Game(args.load_map, scale=args.scale)
     game.run()
 
 
