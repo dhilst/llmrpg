@@ -436,7 +436,8 @@ class Game:
         self.camera = Camera(self.viewport_width, self.viewport_height)
         # Create separate surfaces for game and GUI
         self.gui_width = 200
-        self.screen = pygame.display.set_mode((self.viewport_width + self.gui_width, self.viewport_height))
+        # Game surface is scaled 2x while GUI remains normal size
+        self.screen = pygame.display.set_mode((self.viewport_width*2 + self.gui_width, self.viewport_height*2))
         self.game_surface = pygame.Surface((self.viewport_width, self.viewport_height))
         self.gui_surface = pygame.Surface((self.gui_width, self.viewport_height))
         
@@ -550,9 +551,10 @@ class Game:
         # Draw GUI
         self.gui.draw(self.gui_surface)
         
-        # Blit both surfaces to screen
-        self.screen.blit(self.game_surface, (self.gui_width, 0))
-        self.screen.blit(self.gui_surface, (0, 0))
+        # Blit both surfaces to screen with 2x scaling for game surface
+        scaled_game = pygame.transform.scale2x(self.game_surface)
+        self.screen.blit(scaled_game, (self.gui_width, 0))
+        self.screen.blit(pygame.transform.scale2x(self.gui_surface), (0, 0))
         pygame.display.flip()
 
     def actors(self) -> list[Actor]:
